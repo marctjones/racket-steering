@@ -1,0 +1,17 @@
+((id "T35")
+ (title "`done` refuses while a criterion is uncovered")
+ (status open)
+ (priority 2)
+ (goal
+  "cmd-done reports uncovered criteria by number with the fix (`steer edit T5 --add-check CMD --covers N`) and refuses; --unverified REASON stays the logged escape hatch. verify reports per criterion. No change for tasks without criteria.")
+ (after ("T34"))
+ (checks ("raco test tests/spec-gate-test.rkt"))
+ (anchors
+  (((hash "30459bf1686e") (ref "steer/cmd-tasks.rkt#cmd-done"))
+   ((hash "ec1baeb87e1a") (ref "steer/cmd-tasks.rkt#run-checks"))))
+ (touches ())
+ (tags ("regular-grammar"))
+ (claimed-by #f)
+ (created "2026-09-26T07:48:37Z")
+ (updated "2026-09-26T07:48:38Z")
+ (log ()))

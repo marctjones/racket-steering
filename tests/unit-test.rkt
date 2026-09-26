@@ -83,6 +83,12 @@
 (put! "a.rkt" "#lang racket/base\n(define (h) 1)\n")
 (check-equal? (anchor-state pending (resolve-anchor dir "a.rkt#h")) 'created)
 
+;; names that print specially (Rosette defines ||, the empty symbol) are still anchorable
+(put! "o.rkt" "#lang racket/base\n(define (|| a b) (or a b))\n(define (|x y| z) z)\n")
+(check-equal? (symbol->anchor-name '||) "||")
+(check-true (hash-ref (resolve-anchor dir "o.rkt#||") 'found?))
+(check-true (hash-ref (resolve-anchor dir (string-append "o.rkt#" (symbol->anchor-name '|x y|))) 'found?))
+
 (put! "m.py" "import os\n\ndef load(p):\n    with open(p) as f:\n        return f.read()\n\ndef other():\n    pass\n")
 (let ([r (resolve-anchor dir "m.py#load")])
   (check-equal? (list (hash-ref r 'line) (hash-ref r 'end) (hash-ref r 'method)) '(3 5 heuristic)))
@@ -116,7 +122,35 @@
 (check-equal? (kinds "#lang racket/base\n(let ([x 1)) x)\n") '(read-error mismatched-closer))
 (check-equal? (kinds "(define x 1)\n") '(no-lang))
 (let-values ([(fs _n _l) (check-source "#lang racket/base\n(define (f x)\n  (+ x 1)\n\n(define y 2)\n" "x.rkt")])
-  (check-regexp-match #rx"end of line 3" (hash-ref (second fs) 'fix)))
+  (check-regexp-match #rx"end of line 3" (hash-ref (second fs) 'message))
+  (check-equal? (hash-ref (hash-ref (second fs) 'edit) 'line) 3)
+  (check-regexp-match #rx"verified" (hash-ref (second fs) 'message)))
+
+;; headers found on the installation corpus (each was a false positive before)
+(check-equal? (kinds "#!/usr/bin/env racket\n#lang racket/base\n(define x 1)\n") '() "shebang line before #lang")
+(check-equal? (header-lang "#! /usr/bin/env racket\n;; c\n#lang racket/base\n") "racket/base")
+(define htdp-src ";; The first three lines of this file were inserted by DrRacket.\n;; about the language level of this file in a form that our tools can easily process.\n#reader(lib \"htdp-beginner-reader.ss\" \"lang\")((modname foo) (read-case-sensitive #t) (teachpacks ()))\n(define (f x) x)\n")
+(check-equal? (kinds htdp-src) '() "DrRacket teaching-language #reader header")
+(let-values ([(fs _l _t) (read-racket-source htdp-src)])
+  (check-equal? (map syntax->datum fs) '((define (f x) x)) "reader spec and settings datum are blanked")
+  (check-equal? (syntax-line (car fs)) 4 "line numbers survive blanking"))
+(check-equal? (kinds "#reader scribble/reader\n@title{a ( b}\n") '(not-sexp))
+(check-equal? (kinds "#reader(lib\"read.ss\"\"wxme\")WXME0108 ## \n#|\n   This file uses the GRacket editor format.\n") '(not-sexp))
+(check-equal? (kinds "#lang racklog\nparent(john, doug).\n") '(not-sexp))
+(check-equal? (kinds "#lang scribble/manual\n@title{x}\n") '(not-sexp))
+
+;; machine-applicable edits: applying the suggested edit restores the original program
+(define (repair text)
+  (let-values ([(fs _n _l) (check-source text "x.rkt")])
+    (define e (for/first ([f fs] #:when (hash-ref f 'edit #f)) (hash-ref f 'edit)))
+    (and e (apply-edit text e))))
+(define good "#lang racket/base\n(define (f x)\n  (+ x 1)) ; one\n\n(define y 2)\n")
+(check-equal? (repair "#lang racket/base\n(define (f x)\n  (+ x 1) ; one\n\n(define y 2)\n") good
+              "closer inserted before the trailing comment")
+(check-equal? (repair "#lang racket/base\n(define (f x)\n  (+ x 1))) ; one\n\n(define y 2)\n") good "extra closer deleted")
+(check-equal? (repair "#lang racket/base\n(let ([x 1)) x)\n") "#lang racket/base\n(let ([x 1]) x)\n" "mismatched closer replaced")
+(check-equal? (code-end-col "(a \"x;y\") ; c" 1) 10)
+(check-equal? (code-end-col "(a #\\;)  ; c" 1) 8)
 
 ;; ---------------------------------------------------------------------------------------------
 ;; API diff classification
@@ -140,3 +174,5 @@
   (check-equal? (opt-ids o 'after) '("T1" "T2" "T3"))
   (check-true (hash-ref o 'flag)))
 (check-exn exn:steer? (λ () (parse-args "x" '("--nope") '())))
+
+(check-equal? (kinds "(module m '#%kernel\n  (define-values (x) 1))\n") '() "explicit module form needs no #lang")

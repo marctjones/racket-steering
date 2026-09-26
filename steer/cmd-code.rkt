@@ -14,8 +14,9 @@
 ;; syntax
 
 (define (cmd-syntax argv)
-  (define-values (files _) (parse-args "syntax" argv '() #:min 1 #:usage "steer syntax FILE..."))
+  (define-values (files o) (parse-args "syntax" argv '(("--fix" bool)) #:min 1 #:usage "steer syntax FILE... [--fix]"))
   (define root (project-root))
+  (define fixes (if (opt-ref o 'fix) (for/list ([f files] #:when (file-exists? f)) (cons f (fix-file! f (display-path root f)))) '()))
   (define results
     (for/list ([f files])
       (cond
@@ -26,11 +27,32 @@
   (define all (append-map caddr results))
   (define errors (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) all))
   (make-reply "syntax"
-              (string-join (for/list ([r results] #:when (null? (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) (caddr r))))
-                             (format "ok ~a (~a form~a)" (car r) (cadr r) (plural (or (cadr r) 0))))
+              (string-join (append
+                            (for*/list ([fx fixes] [e (cdr fx)])
+                              (format "fixed ~a: ~a (structure may still differ from what you meant: rerun the tests)" (car fx) (edit-summary e)))
+                            (for/list ([r results] #:when (null? (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) (caddr r))))
+                              (format "ok ~a (~a form~a)" (car r) (cadr r) (plural (or (cadr r) 0)))))
                            "\n")
               (hasheq 'files (for/list ([r results]) (hasheq 'file (car r) 'forms (cadr r) 'ok (null? (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) (caddr r))))))
               #:ok? (null? errors) #:findings all))
+
+;; --fix: apply verified edits only (the file must read afterwards), at most 3 rounds. → edits applied
+(define (fix-file! path shown)
+  (let loop ([round 0] [applied '()])
+    (define text (file->text path))
+    (define-values (fs _n _l) (check-source text shown))
+    (define e (for/first ([f fs] #:when (let ([e (hash-ref f 'edit #f)]) (and e (hash-ref e 'verified #f)))) (hash-ref f 'edit)))
+    (cond
+      [(or (not e) (>= round 3)) (reverse applied)]
+      [else
+       (call-with-output-file path #:exists 'truncate (λ (o) (write-string (apply-edit text e) o)))
+       (loop (add1 round) (cons e applied))])))
+
+(define (edit-summary e)
+  (case (hash-ref e 'op)
+    [(insert) (format "inserted ~a at line ~a col ~a" (hash-ref e 'text) (hash-ref e 'line) (hash-ref e 'col))]
+    [(delete) (format "deleted `~a` at line ~a col ~a" (hash-ref e 'text) (hash-ref e 'line) (hash-ref e 'col))]
+    [(replace) (format "replaced the closer at line ~a col ~a with `~a`" (hash-ref e 'line) (hash-ref e 'col) (hash-ref e 'text))]))
 
 ;; For `steer hook post-edit`: #f when fine or not a Racket file, else text for the model.
 (define (post-edit-problems file)

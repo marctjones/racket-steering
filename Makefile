@@ -5,7 +5,7 @@ PREFIX ?= $(HOME)/.local
 SRC    := $(wildcard steer/*.rkt)
 SKILLS := $(shell find skills -type f -not -name '.*')
 
-.PHONY: all build test test-bin dist install clean
+.PHONY: all build test test-bin dist install clean samples samples-validate
 
 all: build
 
@@ -36,6 +36,15 @@ install: dist
 	mkdir -p $(PREFIX)/bin
 	ln -sf $(CURDIR)/dist/bin/steer $(PREFIX)/bin/steer
 	@echo "installed $(PREFIX)/bin/steer -> $(CURDIR)/dist/bin/steer"
+
+# sample corpora + eval sets for measurement: fetched from pinned sources into samples/ (gitignored)
+samples:
+	$(RACKET) scripts/samples.rkt fetch
+	$(RACKET) scripts/samples.rkt build
+
+# every exercism reference passes its tests and every repair mutant fails them (~2 min)
+samples-validate:
+	$(RACKET) scripts/samples.rkt validate
 
 clean:
 	rm -rf build dist steer/compiled tests/compiled

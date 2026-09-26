@@ -27,7 +27,7 @@ One executable, short text output (or `--json` in the note-03 protocol), stable 
 | task tracker | `init add import list show ready next claim release note checkpoint done verify drop reopen edit` | F1 |
 | continuity | `resume` (budgeted packet) · `since N` (event cursor) · `graph` (cycles, layers, critical path) | F1 |
 | plan drift | `stale` / `refresh`: symbol anchors (`file#name`) hashed over the datum, so reformatting is not drift | F2 |
-| Racket code | `syntax` (paren errors + likely fix line) · `dup` (clones modulo renaming) · `api snapshot/diff/show` | A1 F5 F3 |
+| Racket code | `syntax [--fix]` (reader error + a verified, indentation-guided repair) · `dup` (clones modulo renaming) · `api snapshot/diff/show` | A1 F5 F3 |
 | harness | `skills install` · `hook session-start` · `hook post-edit` · `hook config` | F7 |
 
 What makes it agent-friendly: `done` runs the task's checks and refuses on failure; `checkpoint` requires
@@ -47,6 +47,21 @@ make install  # dist/ (self-contained) + symlink in ~/.local/bin (PREFIX=... to 
 
 The distributed binary runs without Racket installed, except `steer api`, which loads user modules
 with the installed `racket` in a time-limited worker process.
+
+### Sample data (never committed)
+
+Measurement data lives in `samples/` (gitignored) and is rebuilt from pinned sources listed in
+`scripts/samples-sources.rktd`: five GitHub repositories at fixed commits, MultiPL-E's Racket HumanEval and
+MBPP, and the local Racket installation (read in place).
+
+```bash
+make samples           # fetch + build eval sets: T1/T2 tasks and T3 repair mutants, ~19% held out
+make samples-validate  # every exercism reference passes its tests, every mutant fails them
+racket scripts/corpus-gate.rkt         # false positives / crashes of steer over ~6,300 real files
+racket scripts/syntax-accuracy.rkt 400 # seeded paren errors: fix accuracy (results in notes/10)
+```
+
+Tasks whose check reads `samples/` (e.g. T8) fail on a fresh clone until `make samples` has run.
 
 ### Use with Claude Code
 
@@ -77,9 +92,12 @@ Plan format (`steer help import`):
 | `notes/04-evaluation.md` | how to test whether any of this helps, benchmarks, metrics, controls |
 | `notes/05-prior-art-and-questions.md` | related work to read, open questions, risks, non-goals |
 | `notes/06-continuity-and-drift.md` | tracker, anchors, drift and clone tools; tool/model division of labour; tested Datalog limits |
+| `notes/10-syntax-accuracy.md` | measured: 0 false positives on 6,291 files; 86 % exact repair of seeded paren errors |
+| `notes/11-regular-grammar-languages.md` | conlangs and controlled English for steering; token measurements; G-series tools; chosen: acceptance criteria |
 | `steer/` | the CLI (`main.rkt` entry; one module per concern) |
 | `skills/` | Claude Code skills, embedded into the binary at compile time |
 | `tests/` | rackunit unit tests and end-to-end CLI tests |
+| `scripts/` | sample-data fetch/build, corpus gate, accuracy measurements |
 | `.steer/` | this repo's own task store (backlog), committed |
 
 ## Known limits of the first slice

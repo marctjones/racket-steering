@@ -38,10 +38,11 @@
 
 (define (finding severity kind message
                  #:file [file #f] #:line [line #f] #:col [col #f] #:task [task #f] #:fix [fix #f]
-                 #:detail [detail #f])
+                 #:detail [detail #f] #:edit [edit #f])
+  ;; `edit` is the machine-applicable form of `fix` (see syntax-check.rkt apply-edit)
   (for/hasheq ([(k v) (in-hash (hasheq 'severity severity 'kind kind 'message message
                                        'file file 'line line 'col col 'task task 'fix fix
-                                       'detail detail))]
+                                       'detail detail 'edit edit))]
                #:when v)
     (values k v)))
 

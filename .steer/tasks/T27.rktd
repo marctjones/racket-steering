@@ -1,0 +1,16 @@
+((id "T27")
+ (title
+  "Write ~30 new Racket tasks not present in any public dataset (contamination control for note 04)")
+ (status open)
+ (priority 2)
+ (goal
+  "MultiPL-E and exercism are almost certainly in training data. New tasks, ideally human-written, stored outside git like the rest of samples/ or in a private repo.")
+ (after ("T8"))
+ (checks ("test $(ls samples/eval/new 2>/dev/null | wc -l) -ge 30"))
+ (anchors ())
+ (touches ())
+ (tags ("measure"))
+ (claimed-by #f)
+ (created "2026-09-26T07:26:32Z")
+ (updated "2026-09-26T07:26:32Z")
+ (log ()))

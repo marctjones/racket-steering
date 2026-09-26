@@ -4,7 +4,7 @@
 ;; Racket files: exact definition lookup, hash over the datum (formatting-insensitive).
 ;; Other files: a keyword/indentation heuristic, clearly labelled as such.
 (require racket/list racket/string "srcread.rkt")
-(provide parse-anchor resolve-anchor anchor-state baseline-anchor)
+(provide parse-anchor resolve-anchor anchor-state baseline-anchor symbol->anchor-name)
 
 (define (parse-anchor s)
   (define m (regexp-match #rx"^([^#]+)(?:#(.+))?$" s))
@@ -27,7 +27,10 @@
        [(racket-file? p)
         (with-handlers ([exn:fail:read? (λ (e) (miss (string-append "unreadable: " (clip-msg e)) 'racket))])
           (define-values (forms _lang _t) (read-racket-source text #:source rel))
-          (define d (assq (string->symbol name) (find-definitions forms)))
+          (define d (for/first ([d (find-definitions forms)]
+                                #:when (or (equal? (symbol->anchor-name (car d)) name)
+                                           (equal? (symbol->string (car d)) name)))
+                      d))
           (cond
             [d
              (define f (cdr d))
@@ -39,6 +42,12 @@
        [else (heuristic text ref name)])]))
 
 (define (clip-msg e) (car (string-split (exn-message e) "\n")))
+
+;; How a definition name is written after `#`: plainly, or in printed form when the plain text would
+;; be empty or ambiguous (Rosette defines `||`, which Racket reads as the empty symbol).
+(define (symbol->anchor-name s)
+  (define str (symbol->string s))
+  (if (or (string=? str "") (regexp-match? #px"[\\s#|]" str)) (format "~s" s) str))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Heuristic for non-Racket files: find a definition line by keyword, then take the indented block.

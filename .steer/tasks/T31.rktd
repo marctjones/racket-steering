@@ -1,0 +1,17 @@
+((id "T31")
+ (title "Wire `steer spec check|render FILE|-` into the CLI")
+ (status open)
+ (priority 1)
+ (goal
+  "steer/cmd-spec.rkt registered in main.rkt's command table with help text, exit codes (0 ok, 1 findings, 2 usage) and the finding cap. Reads a file or stdin, one criterion per line, comments allowed.")
+ (after ("T28" "T29" "T30"))
+ (checks ("raco test tests/spec-cmd-test.rkt"))
+ (anchors
+  (((hash "00a2ce2125cb") (ref "steer/main.rkt#commands"))
+   ((hash #f) (ref "steer/cmd-spec.rkt#cmd-spec"))))
+ (touches ())
+ (tags ("regular-grammar"))
+ (claimed-by #f)
+ (created "2026-09-26T07:48:36Z")
+ (updated "2026-09-26T07:48:38Z")
+ (log ()))

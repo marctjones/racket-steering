@@ -56,7 +56,9 @@
 
 ;; hooks
 (call-with-output-file (build-path dir "bad.rkt") (λ (o) (void (write-string "#lang racket/base\n(define (f x)\n  x\n\n(define y 1)\n" o))))
-(expect 2 #rx"add \\) at the end of line 3" (steer "hook" "post-edit" #:in "{\"tool_input\":{\"file_path\":\"bad.rkt\"}}"))
+(expect 2 #rx"missing \\) at the end of line 3 \\(verified" (steer "hook" "post-edit" #:in "{\"tool_input\":{\"file_path\":\"bad.rkt\"}}"))
+(expect 0 #rx"fixed bad.rkt: inserted \\) at line 3" (steer "syntax" "--fix" "bad.rkt"))
+(expect 0 #rx"^ok bad.rkt \\(2 forms\\)" (steer "syntax" "bad.rkt"))
 (expect 0 #rx"^$" (steer "hook" "post-edit" #:in "{\"tool_input\":{\"file_path\":\"one.txt\"}}"))
 (expect 0 #rx"steer resume" (steer "hook" "session-start"))
 

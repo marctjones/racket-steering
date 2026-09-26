@@ -55,7 +55,7 @@ EOF
    (cmd "graph" cmd-graph "steer graph" "check the dependency graph: cycles, missing/dropped deps, layers, critical path")
    (cmd "stale" cmd-stale "steer stale" "anchors on open tasks whose code changed since the plan was written")
    (cmd "refresh" cmd-refresh "steer refresh ID... | --all" "accept the current code as the new anchor baseline after reviewing")
-   (cmd "syntax" cmd-syntax "steer syntax FILE..." "Racket structural check: reader errors and the likely unbalanced form")
+   (cmd "syntax" cmd-syntax "steer syntax FILE... [--fix]" "Racket structural check: reader error plus a verified repair; --fix applies it")
    (cmd "dup" cmd-dup "steer dup [PATH...] [--min-size N] [--loose]" "Racket clone detection: same code modulo local renaming")
    (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE.rkt...]" "public API lock for Racket modules: exports, arity, contracts; diff classifies breaks")
    (cmd "skills" (λ (a) (cmd-skills a)) "steer skills list|install [--user] [--force] [NAME...]" "install the bundled Claude Code skills")

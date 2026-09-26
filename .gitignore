@@ -1,3 +1,5 @@
 compiled/
 build/
 dist/
+# sample corpora and eval sets: fetched by `make samples`, never committed
+samples/

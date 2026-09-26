@@ -1,0 +1,18 @@
+((id "T33")
+ (title "Add #:criteria to plans and --criteria to add/edit, validated at import")
+ (status open)
+ (priority 2)
+ (goal
+  "A task may carry criteria (repeatable). import parses each one with parse-criteria and rejects the whole plan on error with line:col (all-or-nothing, like the other fields); add/edit do the same per task. Stored under a `criteria` key in the task file; show and the resume packet print them within the 2 KB budget.")
+ (after ("T28" "T30"))
+ (checks ("raco test tests/spec-field-test.rkt"))
+ (anchors
+  (((hash "fab60874cbb4") (ref "steer/plan.rkt#parse-task-form"))
+   ((hash "e7bcdd631eb5") (ref "steer/cmd-tasks.rkt#cmd-add"))
+   ((hash "38a6b8193ab7") (ref "steer/cmd-tasks.rkt#packet"))))
+ (touches ())
+ (tags ("regular-grammar"))
+ (claimed-by #f)
+ (created "2026-09-26T07:48:37Z")
+ (updated "2026-09-26T07:48:38Z")
+ (log ()))
