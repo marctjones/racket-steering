@@ -11,9 +11,11 @@ These tools are exact, so trust them over your own paren counting or memory of a
 ## Parentheses and structure
 
 `steer syntax FILE...` reads the file without running it. The reader error names the opener; the
-extra `unclosed-form` / `mismatched-closer` finding says where the fix most likely goes
-(e.g. "add ) at the end of line 42"). Apply that one edit, then rerun, instead of rewriting the
-file. With the PostToolUse hook installed this runs automatically after every edit of a Racket file.
+second finding is a repair that steer has *verified* (the file reads after it), chosen by indentation,
+e.g. "missing ) at the end of line 42 → insert ) at line 42 col 17". `steer syntax --fix FILE` applies
+verified repairs for you. Either way, rerun the tests: about 1 in 10 verified repairs reads fine but
+nests differently than you meant (notes/10). Never retype the whole file to fix a paren.
+With the PostToolUse hook installed this check runs after every edit of a Racket file.
 
 ## Duplicates
 

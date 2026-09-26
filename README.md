@@ -40,7 +40,7 @@ Needs Racket 9 (tested on 9.3 CS).
 
 ```bash
 make          # build/steer (raco exe)
-make test     # 110 tests: unit + end-to-end CLI
+make test     # unit, GitHub-sync and end-to-end CLI tests (163 at v0.2.0)
 make test-bin # the end-to-end suite against the compiled binary
 make install  # dist/ (self-contained) + symlink in ~/.local/bin (PREFIX=... to change)
 ```
