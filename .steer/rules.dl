@@ -1,0 +1,32 @@
+% steer's own architecture, checked by `steer rules check` (and by tests/self-architecture-test.rkt).
+% Dependencies point downward only: main -> commands -> core. Nothing in the product may reach scripts or tests.
+%layer core     steer/common.rkt
+%layer core     steer/store.rkt
+%layer core     steer/tasks.rkt
+%layer core     steer/srcread.rkt
+%layer core     steer/anchors.rkt
+%layer core     steer/checks.rkt
+%layer core     steer/plan.rkt
+%layer core     steer/syntax-check.rkt
+%layer core     steer/dup.rkt
+%layer core     steer/api.rkt
+%layer core     steer/failures.rkt
+%layer core     steer/skills.rkt
+%layer command  steer/cmd-*.rkt
+%layer command  steer/doc.rkt
+%layer command  steer/github.rkt
+%layer command  steer/doctor.rkt
+%layer command  steer/rules.rkt
+%layer main     steer/main.rkt
+%layer scripts  scripts/**
+%layer tests    tests/**
+
+violation(A, B, "core must not depend on a command module")  :- reach(A, B), layer(A, "core"), layer(B, "command").
+violation(A, B, "core must not depend on main")               :- reach(A, B), layer(A, "core"), layer(B, "main").
+violation(A, B, "command modules must not depend on main")    :- reach(A, B), layer(A, "command"), layer(B, "main").
+violation(A, B, "command modules are independent of each other (share code through core)")
+                                                              :- requires(A, B), layer(A, "command"), layer(B, "command").
+violation(A, B, "product code must not depend on scripts")    :- reach(A, B), layer(B, "scripts"), layer(A, "core").
+violation(A, B, "product code must not depend on scripts")    :- reach(A, B), layer(B, "scripts"), layer(A, "command").
+violation(A, B, "product code must not depend on tests")      :- reach(A, B), layer(B, "tests"), layer(A, "core").
+violation(A, B, "product code must not depend on tests")      :- reach(A, B), layer(B, "tests"), layer(A, "command").

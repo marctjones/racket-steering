@@ -44,6 +44,14 @@ Good checks are fast and specific: `raco test f.rkt`, `pytest tests/test_x.py::t
 Change a plan with `steer edit T5 --add-check CMD --add-after T2 --goal "..."`;
 abandon with `steer drop T5 --reason "..."`.
 
+## Working on a branch
+
+Task ids are sequential, so two branches that each add a task both create the next id. Before
+merging a branch that added tasks, run `steer doctor --against main --fix` on it: it renumbers your
+colliding tasks (and the `--after` references to them) and resequences the merged event log.
+`steer doctor` alone checks the store: unreadable or conflicted task files, dangling dependencies,
+cycles, and tasks claimed for more than a week.
+
 ## Stale anchors
 
 An anchor (`file#name`) remembers a hash of that definition when the plan was written. A

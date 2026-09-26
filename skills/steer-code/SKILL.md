@@ -40,6 +40,13 @@ Before adding a helper, check whether an equivalent already exists:
 A group lists every copy with its enclosing definition. Extract a shared function when the copies
 must change together; code that merely looks alike can stay.
 
+## Architecture rules
+
+If the repo has `.steer/rules.dl`, `steer rules check` verifies the layering rules over the Racket require
+graph (for example "ui must not reach db") and prints the require *path* behind each violation, with the
+line of the offending `require`. Fix the last link of the chain, not the first. `steer rules init` writes
+an example; rules are positive Datalog plus `%layer NAME GLOB` lines (`steer help rules`).
+
 ## Public API drift
 
 1. Once, and after an intended API change: `steer api snapshot src/main.rkt src/lib.rkt`, then commit

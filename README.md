@@ -30,6 +30,7 @@ One executable, short text output (or `--json` in the note-03 protocol), stable 
 | continuity | `resume` (budgeted packet) · `since N` (event cursor) · `graph` (cycles, layers, critical path) | F1 |
 | plan drift | `stale` / `refresh`: symbol anchors (`file#name`) hashed over the datum, so reformatting is not drift | F2 |
 | Racket code | `syntax [--fix]` (reader error + a verified, indentation-guided repair) · `dup` (clones modulo renaming) · `api snapshot/diff/show` | A1 F5 F3 |
+| architecture | `rules check\|facts\|init`: layering rules as Datalog over the require graph; each violation shows the require path (this repo checks itself: `.steer/rules.dl`) | F4 |
 | Racket docs | `doc exists\|sig\|search\|exports`: is this name real, its documented signature and `(require ...)`, nearest racket names for a wrong one | B1 |
 | harness | `skills install` · `hook session-start` · `hook post-edit` · `hook config` | F7 |
 
@@ -97,6 +98,7 @@ Plan format (`steer help import`):
 | `notes/05-prior-art-and-questions.md` | related work to read, open questions, risks, non-goals |
 | `notes/06-continuity-and-drift.md` | tracker, anchors, drift and clone tools; tool/model division of labour; tested Datalog limits |
 | `notes/10-syntax-accuracy.md` | measured: 0 false positives on 6,291 files; 86 % exact repair of seeded paren errors |
+| `notes/15-architecture-rules.md` | `steer rules`: Datalog over the require graph; what was tested, and why evaluation is ours |
 | `notes/14-doc-lookup.md` | `steer doc`: catches wrong names; held-out top-1 4 → 13 of 20; what is measured and what is not |
 | `notes/11-regular-grammar-languages.md` | conlangs and controlled English for steering; token measurements; G-series tools; chosen: acceptance criteria |
 | `steer/` | the CLI (`main.rkt` entry; one module per concern) |

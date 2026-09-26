@@ -3,7 +3,7 @@
 ;; Global flags may appear anywhere: --json --full --limit N --agent NAME --root DIR
 ;; Exit codes (stable, hooks depend on them): 0 ok · 1 findings/refused · 2 usage · 3 internal.
 (require racket/list racket/string racket/port json
-         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt" "doc.rkt" "doctor.rkt" "failures.rkt")
+         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt" "doc.rkt" "doctor.rkt" "failures.rkt" "rules.rkt")
 (provide main)
 
 (define version "0.2.0")
@@ -60,6 +60,8 @@ EOF
    (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE.rkt...]" "public API lock for Racket modules: exports, arity, contracts; diff classifies breaks")
    (cmd "doc" cmd-doc "steer doc exists|sig ID [MODULE] | search WORD... | exports MODULE"
         "Racket documentation lookup: does this name exist, its documented signature, what a module provides")
+   (cmd "rules" cmd-rules "steer rules check|facts|init [--rules FILE]"
+        "architecture rules over the require graph, written as Datalog (layers, forbidden dependencies); reports the require path")
    (cmd "failures" cmd-failures "steer failures [--since ISO-DATE] [--who AGENT] [--class CLASS] [--by class|kind|tool|agent]"
         "what actually failed when agents used steer, by class; the largest class says what to build next")
    (cmd "doctor" cmd-doctor "steer doctor [--against GIT-REF] [--fix]"

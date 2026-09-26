@@ -142,3 +142,6 @@
 (142 "2026-09-26T23:07:39Z" "claude" note "T7" "Built steer/failures.rkt: main.rkt logs every command's error/warning findings (and hook syntax errors) to gitignored .steer/failures.rktd, classified per note 04 (unbound-id, syntax, check-failed, tool-misuse, plan-error, drift, api-break, tool-failure). steer failures summarises and points at the catalog item for the largest class. Found a flag clash: global --agent vs a filter flag, so the filter is --who. Data is still empty of real model failures: needs agents using steer over time.")
 (143 "2026-09-26T23:07:39Z" "claude" claim "T7" "claude")
 (144 "2026-09-26T23:07:45Z" "claude" done "T7" "1 check passed")
+(145 "2026-09-26T23:14:05Z" "claude" note "T16" "Built steer/rules.rkt: datalog/parse for parsing, own bottom-up evaluator (the package's prove returned no answers in this environment), %layer glob directives, reach() prelude, violation/2,3 reported with the require path and the offending line. Dogfooded: .steer/rules.dl for steer itself, checked by tests/rules-test.rkt; mutation test caught a core->command dependency. Details notes/15.")
+(146 "2026-09-26T23:14:05Z" "claude" claim "T16" "claude")
+(147 "2026-09-26T23:14:11Z" "claude" done "T16" "1 check passed")
