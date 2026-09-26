@@ -3,7 +3,7 @@
 ;; Global flags may appear anywhere: --json --full --limit N --agent NAME --root DIR
 ;; Exit codes (stable, hooks depend on them): 0 ok · 1 findings/refused · 2 usage · 3 internal.
 (require racket/list racket/string racket/port json
-         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt" "doc.rkt" "doctor.rkt")
+         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt" "doc.rkt" "doctor.rkt" "failures.rkt")
 (provide main)
 
 (define version "0.2.0")
@@ -60,6 +60,8 @@ EOF
    (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE.rkt...]" "public API lock for Racket modules: exports, arity, contracts; diff classifies breaks")
    (cmd "doc" cmd-doc "steer doc exists|sig ID [MODULE] | search WORD... | exports MODULE"
         "Racket documentation lookup: does this name exist, its documented signature, what a module provides")
+   (cmd "failures" cmd-failures "steer failures [--since ISO-DATE] [--who AGENT] [--class CLASS] [--by class|kind|tool|agent]"
+        "what actually failed when agents used steer, by class; the largest class says what to build next")
    (cmd "doctor" cmd-doctor "steer doctor [--against GIT-REF] [--fix]"
         "check .steer/ integrity; find task ids another branch uses for a different task; --fix renumbers ours and resequences events")
    (cmd "github" cmd-github "steer github sync (--tag T... | --all) [--dry-run] [--repo OWNER/NAME]"
@@ -205,7 +207,8 @@ JSON
   (define (elapsed) (inexact->exact (round (- (current-inexact-milliseconds) start))))
   (when (getenv "STEER_AGENT") (current-agent (getenv "STEER_AGENT")))
   (define code
-    (with-handlers ([exn:steer? (λ (e) (emit (error-reply (exn:steer-kind e) (exn-message e) (exn:steer-hint e)) (elapsed))
+    (with-handlers ([exn:steer? (λ (e) (record-exn! e)
+                                  (emit (error-reply (exn:steer-kind e) (exn-message e) (exn:steer-hint e)) (elapsed))
                                   (exn:steer-code e))]
                     [exn:break? (λ (e) 130)]
                     [exn:fail? (λ (e) (emit (error-reply 'internal (car (string-split (exn-message e) "\n"))
@@ -224,6 +227,7 @@ JSON
            [(or (member "--help" rest) (member "-h" rest)) (emit (cmd-help (list (car args))) (elapsed)) 0]
            [else
             (define r ((command-proc c) rest))
+            (record-reply! r)
             (emit r (elapsed))
             (if (reply-ok? r) 0 1)])])))
   (flush-output)

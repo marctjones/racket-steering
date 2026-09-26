@@ -139,3 +139,6 @@
 (139 "2026-09-26T23:04:57Z" "claude" note "T21" "Built steer doctor: integrity checks; --against REF finds ids the other branch uses for a different task (same id, different title or created); --fix renumbers OURS above the highest id on either side, repoints after-references, resequences union-merged events. Tested with a real two-branch git scenario. Not covered: GitHub issue titles keep the old id until the next github sync (the task digest changes, so sync updates them).")
 (140 "2026-09-26T23:04:58Z" "claude" claim "T21" "claude")
 (141 "2026-09-26T23:05:02Z" "claude" done "T21" "1 check passed")
+(142 "2026-09-26T23:07:39Z" "claude" note "T7" "Built steer/failures.rkt: main.rkt logs every command's error/warning findings (and hook syntax errors) to gitignored .steer/failures.rktd, classified per note 04 (unbound-id, syntax, check-failed, tool-misuse, plan-error, drift, api-break, tool-failure). steer failures summarises and points at the catalog item for the largest class. Found a flag clash: global --agent vs a filter flag, so the filter is --who. Data is still empty of real model failures: needs agents using steer over time.")
+(143 "2026-09-26T23:07:39Z" "claude" claim "T7" "claude")
+(144 "2026-09-26T23:07:45Z" "claude" done "T7" "1 check passed")

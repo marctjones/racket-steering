@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Code-facing commands: `syntax` (A1), `dup` (F5), `api` (F3), and the post-edit hook check.
 (require racket/list racket/string racket/file
-         "common.rkt" "store.rkt" "srcread.rkt" "syntax-check.rkt" "dup.rkt" "api.rkt")
+         "common.rkt" "store.rkt" "failures.rkt" "srcread.rkt" "syntax-check.rkt" "dup.rkt" "api.rkt")
 (provide cmd-syntax cmd-dup cmd-api post-edit-problems)
 
 (define (project-root) (or (find-root #:required? #f) (simplify-path (current-directory))))
@@ -59,6 +59,7 @@
   (and (racket-file? file) (file-exists? file)
        (let-values ([(fs n lang) (check-source (file->text file) file)])
          (define errors (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) fs))
+         (for ([e errors]) (record-finding! 'hook-post-edit e))
          (and (pair? errors)
               (string-append "steer syntax found structural problems in the file just edited:\n"
                              (string-join (map finding->text (take errors (min 3 (length errors)))) "\n"))))))

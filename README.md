@@ -25,6 +25,7 @@ One executable, short text output (or `--json` in the note-03 protocol), stable 
 | area | commands | catalog |
 |---|---|---|
 | task tracker | `init add import list show ready next claim release note checkpoint done verify drop reopen edit` | F1 |
+| measurement | `failures [--by class\|kind\|tool\|agent]`: every command logs its error/warning findings (locally, gitignored, clipped); the largest class says what to build next | E1 |
 | store health | `doctor [--against REF] [--fix]`: corrupt/conflicted files, dangling deps, stale claims, ids another branch uses for a different task (renumbers ours), duplicate event numbers after merges | F1 |
 | continuity | `resume` (budgeted packet) · `since N` (event cursor) · `graph` (cycles, layers, critical path) | F1 |
 | plan drift | `stale` / `refresh`: symbol anchors (`file#name`) hashed over the datum, so reformatting is not drift | F2 |

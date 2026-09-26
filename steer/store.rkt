@@ -57,7 +57,7 @@
   (unless (file-exists? (config-file root)) (write-rktd (config-file root) default-config))
   (unless (file-exists? (events-file root)) (call-with-output-file (events-file root) void))
   (define gi (build-path (store-dir root) ".gitignore"))
-  (unless (file-exists? gi) (call-with-output-file gi (λ (o) (display ".lock\n*.tmp\n" o)))))
+  (unless (file-exists? gi) (call-with-output-file gi (λ (o) (display ".lock\n*.tmp\nfailures.rktd\n" o)))))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Locking: exclusive, polled, with a clear failure instead of a hang.
