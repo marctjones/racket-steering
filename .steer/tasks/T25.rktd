@@ -1,0 +1,16 @@
+((id "T25")
+ (title
+  "Decide whether to enable steer hooks + Bash(steer *) permission in this repo (`steer hook config`)")
+ (status open)
+ (priority 1)
+ (goal
+  "Hooks change agent behaviour (resume packet on SessionStart/clear, syntax check after edits). Close with --unverified and the decision.")
+ (after ())
+ (checks ())
+ (anchors ())
+ (touches ())
+ (tags ("human"))
+ (claimed-by #f)
+ (created "2026-09-26T06:14:34Z")
+ (updated "2026-09-26T06:14:34Z")
+ (log ()))

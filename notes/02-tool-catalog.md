@@ -105,6 +105,39 @@ traces. The model should be able to act on the first error alone.
 - Replays recorded agent sessions with a modified tool set to measure the tool's effect without new model calls
   where possible.
 
+## F. Continuity and drift (see note 06)
+
+Language-independent in value; the tracker is implemented first as the `steer` CLI (`steer/`, see README).
+
+### F1 · Agent-friendly task tracker (S-M, value H/unknown)
+- Store: `.steer/` in the project, one s-expression file per task, append-only event log with sequence numbers,
+  lock around mutations. Model uses commands only.
+- Commands: `add`, `import` (checked bulk plan, stdin ok), `list`, `ready`, `next`, `claim`, `note`, `checkpoint`,
+  `done` (runs acceptance checks, refuses on failure), `resume` (≤2 KB packet), `since N`, `graph`.
+- Out: short text by default, `--json` for the note-03 protocol. Stable exit codes for hooks.
+
+### F2 · Symbol anchors and plan-staleness (S, value M/H)
+- Anchor `file#name` hashed over the definition's datum (format-insensitive). `stale` lists open tasks whose anchors
+  changed since planning; `refresh` re-baselines after review. Non-Racket files: heuristic definition finder.
+
+### F3 · Public API lock and diff (M, value M/H)
+- Snapshot exports, arity and contracts of listed Racket modules to `.steer/api.lock` (worker process, time limit);
+  `diff` classifies removed/narrowed as breaking, added/widened as compatible, contract text changes as "review".
+
+### F4 · Architecture rules (M, value M)
+- Extract require-graph facts; check Datalog rules (layering, allowed callers). Report the violating edge.
+
+### F5 · Clone detection (S-M, value M)
+- Racket: subtree hashing after alpha-renaming of local binders, maximal groups only. Later: token winnowing for
+  near-miss and non-Racket code; "does something like this exist?" query for a single definition.
+
+### F6 · Purpose manifest (M, value unknown)
+- Per-module declared responsibilities/allowed exports and requires; flag uncovered change for model review.
+
+### F7 · Harness integration (S, value H/unknown)
+- Claude Code skills shipped inside the binary (`steer skills install`); hook commands: SessionStart runs `resume`,
+  PostToolUse runs structural checks on edited `.rkt` files.
+
 ## Build order suggestion
 
 E1 → A1 → B1 → A2 → A3 (first slice, run evaluation) → C4 → then choose among C1/C3 (agentic) or A4/A6 (quality)

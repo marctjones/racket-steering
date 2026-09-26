@@ -4,7 +4,7 @@
 
 Options, not decisions:
 
-1. **CLI** (`racket-steer check file.rkt --json`): simplest; works with any agent that can run shell commands.
+1. **CLI** (`steer check file.rkt --json`; short name chosen to save tokens in every call): simplest; works with any agent that can run shell commands.
 2. **MCP server** exposing each tool with a JSON schema: the natural fit for Claude-style agents; lets us describe
    arguments precisely and return structured content. Implement in Racket (JSON-RPC over stdio) or as a thin wrapper
    that shells out to the CLI.

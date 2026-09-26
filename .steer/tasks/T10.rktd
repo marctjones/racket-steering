@@ -1,0 +1,16 @@
+((id "T10")
+ (title
+  "T5 continuity benchmark: multi-step tasks with a forced /clear mid-task, with vs without steer")
+ (status open)
+ (priority 2)
+ (goal
+  "Tests the note-06 claim that checkpoint + resume lets a fresh context continue cheaply. Metrics: success, tokens re-read, turns to resume.")
+ (after ("T8"))
+ (checks ("test -f notes/08-continuity-results.md"))
+ (anchors ())
+ (touches ())
+ (tags ("measure"))
+ (claimed-by #f)
+ (created "2026-09-26T06:14:34Z")
+ (updated "2026-09-26T06:14:34Z")
+ (log ()))

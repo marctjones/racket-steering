@@ -1,0 +1,23 @@
+((id "T1")
+ (title
+  "F1 task tracker CLI: store, events, import, next/claim/checkpoint/done, resume/since, graph")
+ (status done)
+ (priority 2)
+ (goal #f)
+ (after ())
+ (checks ("raco test tests"))
+ (anchors
+  (((hash "30459bf1686e") (ref "steer/cmd-tasks.rkt#cmd-done"))
+   ((hash "579f768c4794") (ref "steer/store.rkt#append-event!"))))
+ (touches ())
+ (tags ("built"))
+ (claimed-by "claude")
+ (created "2026-09-26T06:13:22Z")
+ (updated "2026-09-26T06:13:33Z")
+ (log
+  (((agent "claude")
+    (checks (((cmd "raco test tests") (secs 6.0))))
+    (kind done)
+    (seq 9)
+    (ts "2026-09-26T06:13:33Z")
+    (verified #t)))))

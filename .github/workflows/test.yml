@@ -1,0 +1,22 @@
+name: test
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Bogdanp/setup-racket@v1.15
+        with:
+          variant: CS
+          version: '9.3'
+      - name: unit and end-to-end tests (source)
+        run: make test
+      - name: end-to-end tests against the compiled binary
+        run: make test-bin

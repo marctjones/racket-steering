@@ -1,0 +1,39 @@
+name: release
+# Publishing a GitHub release builds a self-contained steer for each platform and attaches it.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: macos-latest
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Bogdanp/setup-racket@v1.15
+        with:
+          variant: CS
+          version: '9.3'
+      - name: build and test
+        run: |
+          make test-bin
+          test "$(build/steer --version)" = "steer ${GITHUB_REF_NAME#v}"
+      - name: package
+        run: |
+          make dist
+          name=steer-${GITHUB_REF_NAME}-${{ matrix.platform }}
+          mv dist "$name"
+          tar czf "$name.tar.gz" "$name"
+      - name: upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" steer-${GITHUB_REF_NAME}-${{ matrix.platform }}.tar.gz --clobber
