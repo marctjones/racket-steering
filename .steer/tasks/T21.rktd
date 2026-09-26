@@ -11,5 +11,11 @@
  (tags ("tracker"))
  (claimed-by #f)
  (created "2026-09-26T06:14:34Z")
- (updated "2026-09-26T06:14:34Z")
- (log ()))
+ (updated "2026-09-26T08:04:16Z")
+ (log
+  (((agent "claude")
+    (kind note)
+    (seq 95)
+    (text
+     "Partial mitigation added: .gitattributes merge=union for .steer/events.rktd, so appends from two branches merge cleanly. Sequence numbers can still repeat across branches, and task ids can still collide; doctor still needed.")
+    (ts "2026-09-26T08:04:16Z")))))

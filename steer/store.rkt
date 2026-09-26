@@ -88,7 +88,7 @@
 ;; Tasks: in memory an immutable hasheq; on disk an alist in a fixed key order for stable diffs.
 
 (define key-order '(id title status priority goal after checks anchors touches tags claimed-by
-                       created updated log))
+                       github created updated log))
 
 (define (task-ref t k [default #f]) (hash-ref t k default))
 (define (task-set t . kvs)
@@ -115,9 +115,11 @@
   (unless (and (list? a) (andmap (λ (kv) (and (list? kv) (= 2 (length kv)) (symbol? (car kv)))) a))
     (fail! 'store-corrupt (format "~a is not a task record" path) #:code 3))
   (define t (alist->hash a))
-  (task-set t
-            'anchors (map alist->hash (task-ref t 'anchors '()))
-            'log (map alist->hash (task-ref t 'log '()))))
+  (define t* (task-set t
+                       'anchors (map alist->hash (task-ref t 'anchors '()))
+                       'log (map alist->hash (task-ref t 'log '()))))
+  ;; nested records added later (github mirror state) are alists on disk too
+  (if (pair? (task-ref t* 'github #f)) (task-set t* 'github (alist->hash (task-ref t* 'github))) t*))
 
 (define (task-file root id) (build-path (tasks-dir root) (string-append id ".rktd")))
 

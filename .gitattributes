@@ -1,0 +1,2 @@
+# append-only event log: concurrent branches both append; keep both sides on merge
+.steer/events.rktd merge=union

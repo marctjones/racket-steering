@@ -10,6 +10,7 @@
  (touches ())
  (tags ("regular-grammar"))
  (claimed-by #f)
+ (github ((digest "fa88f76ab715") (kind issue) (number 2)))
  (created "2026-09-26T07:48:36Z")
- (updated "2026-09-26T07:48:37Z")
+ (updated "2026-09-26T08:03:39Z")
  (log ()))

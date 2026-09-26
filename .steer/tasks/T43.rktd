@@ -1,0 +1,22 @@
+((id "T43")
+ (title
+  "F8 steer github sync: mirror tagged tasks to GitHub milestones and issues (one-way, idempotent)")
+ (status done)
+ (priority 1)
+ (goal
+  "Tasks tagged milestone become GitHub milestones, their member tasks issues (labels from tags, deps and checks in the body, a steer:T marker); done/dropped closes them; numbers stored in the task so re-runs only update what changed. .steer stays the source of truth.")
+ (after ())
+ (checks ("raco test tests/github-test.rkt"))
+ (anchors (((hash #f) (ref "steer/github.rkt#sync-plan"))))
+ (touches ())
+ (tags ("tracker"))
+ (claimed-by "claude")
+ (created "2026-09-26T08:00:23Z")
+ (updated "2026-09-26T08:03:13Z")
+ (log
+  (((agent "claude")
+    (checks (((cmd "raco test tests/github-test.rkt") (secs 3.9))))
+    (kind done)
+    (seq 68)
+    (ts "2026-09-26T08:03:13Z")
+    (verified #t)))))

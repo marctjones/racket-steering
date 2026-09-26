@@ -10,6 +10,7 @@
  (touches ())
  (tags ("regular-grammar" "milestone"))
  (claimed-by #f)
+ (github ((digest "5cc16827e13d") (kind milestone) (number 2)))
  (created "2026-09-26T07:48:37Z")
- (updated "2026-09-26T07:48:38Z")
+ (updated "2026-09-26T08:03:24Z")
  (log ()))

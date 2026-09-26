@@ -101,6 +101,7 @@
      (for/list ([r reports]) (string-append "anchor: " (anchor-text r)))
      (if (null? (task-ref t 'touches '())) '() (list (string-append "touch: " (string-join (task-ref t 'touches) " "))))
      (if (null? (task-ref t 'tags '())) '() (list (string-append "tags: " (string-join (map (λ (x) (format "~a" x)) (task-ref t 'tags)) " "))))
+     (let ([g (task-ref t 'github #f)]) (if (hash? g) (list (format "github: ~a #~a" (hash-ref g 'kind) (hash-ref g 'number))) '()))
      (if (null? shown-log) '()
          (cons (if (< (length shown-log) (length lg)) (format "log (last ~a of ~a):" (length shown-log) (length lg)) "log:")
                (for/list ([e shown-log]) (string-append "  " (log-text e full?)))))))

@@ -3,7 +3,7 @@
 ;; Global flags may appear anywhere: --json --full --limit N --agent NAME --root DIR
 ;; Exit codes (stable, hooks depend on them): 0 ok · 1 findings/refused · 2 usage · 3 internal.
 (require racket/list racket/string racket/port json
-         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt")
+         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt")
 (provide main)
 
 (define version "0.1.0")
@@ -58,6 +58,8 @@ EOF
    (cmd "syntax" cmd-syntax "steer syntax FILE... [--fix]" "Racket structural check: reader error plus a verified repair; --fix applies it")
    (cmd "dup" cmd-dup "steer dup [PATH...] [--min-size N] [--loose]" "Racket clone detection: same code modulo local renaming")
    (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE.rkt...]" "public API lock for Racket modules: exports, arity, contracts; diff classifies breaks")
+   (cmd "github" cmd-github "steer github sync (--tag T... | --all) [--dry-run] [--repo OWNER/NAME]"
+        "mirror tasks to GitHub: milestone-tagged tasks become milestones, the rest issues; re-runs send only changes")
    (cmd "skills" (λ (a) (cmd-skills a)) "steer skills list|install [--user] [--force] [NAME...]" "install the bundled Claude Code skills")
    (cmd "hook" (λ (a) (cmd-hook a)) "steer hook session-start|post-edit|config" "Claude Code hook entry points; `config` prints the settings.json snippet")
    (cmd "help" (λ (a) (cmd-help a)) "steer help [COMMAND]" "this overview, or details for one command")))

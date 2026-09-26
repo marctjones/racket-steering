@@ -1,1 +1,1 @@
-((version 1) (check-timeout 600) (api-modules ()))
+((api-modules ()) (check-timeout 600) (github-labels ("regular-grammar")) (version 1))
