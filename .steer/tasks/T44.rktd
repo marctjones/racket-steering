@@ -1,0 +1,18 @@
+((id "T44")
+ (title "Route `steer syntax` and the post-edit hook by file extension")
+ (status open)
+ (priority 1)
+ (goal
+  "A .py or .cs edit gets its language's gate (or an explicit `skipped` finding) instead of the Racket reader's false errors or silence; one registry (steer/lang.rkt) maps extension to gate so later tasks only add entries.")
+ (after ())
+ (checks ("raco test tests/lang-route-test.rkt"))
+ (anchors
+  (((hash "4a4552df16fb") (ref "steer/cmd-code.rkt#post-edit-problems"))
+   ((hash "014d097f364e") (ref "steer/cmd-code.rkt#cmd-syntax"))))
+ (touches ())
+ (tags ("cross-language"))
+ (claimed-by #f)
+ (github ((digest "6c736d1972e7") (kind issue) (number 14)))
+ (created "2026-09-26T08:04:49Z")
+ (updated "2026-09-26T08:05:03Z")
+ (log ()))

@@ -6,7 +6,7 @@
          "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt")
 (provide main)
 
-(define version "0.1.0")
+(define version "0.2.0")
 
 ;; name, procedure, usage, summary, optional details
 (struct command (name proc usage summary details))

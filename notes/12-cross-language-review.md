@@ -6,7 +6,7 @@ from `dist/`, Racket 9.3 CS, Python 3.14.5 + pytest 9.1, .NET SDK 10.0.401), **[
 Question (the user's): do the tools so far help steer an AI coding agent on Python, Racket or C# projects, and what
 should be built next? Method: `steer init` in one real project per language, a realistic 3-5 task plan with the
 language's own test runner as `#:check`, anchors on real definitions, `done`/`verify` with real failures, and the
-hooks on non-Racket edits. Plan: `scratchpad/cross-language-plan.rktd` (§7).
+hooks on non-Racket edits. Plan: filed as tasks T44-T57 (§7).
 
 ## 0. Setup
 
@@ -189,8 +189,9 @@ cheapest from the language's own parser; Racket stays the host that normalises, 
 
 ## 7. Plan
 
-Plan file `cross-language-plan.rktd` (delivered with this review, not committed; `steer import` it), tag
-`cross-language`, dry-run validated against a copy of this store: 14 tasks, every anchor resolves.
+Filed in this repo's store as T44-T57 (tag `cross-language`; `steer list --tag cross-language`) and mirrored
+to GitHub as milestones "XL1" and "XL2" with one issue per task (`steer github sync --tag cross-language`).
+14 tasks; every anchor resolved when the plan was imported.
 
 - **XL1 "Cross-language steering v1"** (check: an end-to-end test over Python and C# fixtures; C# cases skip when
   `dotnet` is absent, as in CI): hook routing by extension → Python syntax gate via `ast` → C# structural scanner →

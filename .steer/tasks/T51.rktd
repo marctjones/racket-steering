@@ -1,0 +1,18 @@
+((id "T51")
+ (title "Warn with did-you-mean when an anchor's file exists but its name does not")
+ (status open)
+ (priority 2)
+ (goal
+  "`add`/`import`/`edit` distinguish `not yet created` (file absent or name declared new) from `unresolved` (file present, no such definition) and suggest the closest definition names in that file, so typos, qualified names and generics stop hiding as pending anchors.")
+ (after ("T49" "T50"))
+ (checks ("raco test tests/anchor-suggest-test.rkt"))
+ (anchors
+  (((hash "e7bcdd631eb5") (ref "steer/cmd-tasks.rkt#cmd-add"))
+   ((hash "67f9dc8300ab") (ref "steer/cmd-tasks.rkt#cmd-import"))))
+ (touches ())
+ (tags ("cross-language"))
+ (claimed-by #f)
+ (github ((digest "12a59630cc00") (kind issue) (number 21)))
+ (created "2026-09-26T08:04:49Z")
+ (updated "2026-09-26T08:05:19Z")
+ (log ()))

@@ -1,0 +1,18 @@
+((id "T45")
+ (title "Python syntax gate from the stdlib ast, normalised to findings")
+ (status open)
+ (priority 1)
+ (goal
+  "An embedded worker script (the api.rkt pattern) runs `ast.parse` and returns SyntaxError msg/line/col/end as a located finding, with a machine-applicable edit for the shapes Python names precisely ('(' was never closed, expected ':'). Falls back to `skipped` when python3 is missing; under 100 ms.")
+ (after ("T44"))
+ (checks ("raco test tests/py-syntax-test.rkt"))
+ (anchors
+  (((hash "9fecd43c105b") (ref "steer/syntax-check.rkt#check-source"))
+   ((hash "e346686238aa") (ref "steer/api.rkt#api-describe"))))
+ (touches ())
+ (tags ("cross-language"))
+ (claimed-by #f)
+ (github ((digest "dddbe3af7e8b") (kind issue) (number 16)))
+ (created "2026-09-26T08:04:49Z")
+ (updated "2026-09-26T08:05:15Z")
+ (log ()))

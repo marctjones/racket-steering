@@ -1,1 +1,4 @@
-((api-modules ()) (check-timeout 600) (github-labels ("regular-grammar")) (version 1))
+((api-modules ())
+ (check-timeout 600)
+ (github-labels ("regular-grammar" "drift" "cross-language"))
+ (version 1))

@@ -251,9 +251,8 @@ the first number (false rejects on this repo's own 27 goals and the exercism sta
 the second (T5 runs, wrong `done` claims) is note 04's existing design. Fit: it strengthens the tracker's one
 rule that already has teeth, "`done` runs the checks", by making the model say what the checks must prove.
 
-Plan (validated with `steer import --dry-run` against a scratch store, 15 tasks, three milestones):
-`regular-grammar-plan.rktd`, delivered with the session that wrote this note; import it into `.steer/` or commit
-it after review. The milestone table carries the substance.
+Plan: filed in this repo's store as T28-T42 (tag `regular-grammar`; 15 tasks, three milestones) and mirrored to
+GitHub as milestones M1-M3 with one issue per task (`steer github sync --tag regular-grammar`).
 
 | milestone | tasks | proof |
 |---|---|---|
