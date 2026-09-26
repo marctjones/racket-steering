@@ -136,3 +136,6 @@
 (136 "2026-09-26T22:45:58Z" "claude" claim "T12" "claude")
 (137 "2026-09-26T23:01:07Z" "claude" note "T12" "Built steer/doc.rkt (exists/sig/search/exports), worker in installed racket. exists warns not-in-racket for names only in srfi/teaching languages. Suggestions: phrase synonyms + verb-token ranking + edit distance over racket/* names. Held-out fresh2: top-1 4 -> 13 of 20, top-5 11 -> 14. Details notes/14.")
 (138 "2026-09-26T23:01:24Z" "claude" done "T12" "1 check passed")
+(139 "2026-09-26T23:04:57Z" "claude" note "T21" "Built steer doctor: integrity checks; --against REF finds ids the other branch uses for a different task (same id, different title or created); --fix renumbers OURS above the highest id on either side, repoints after-references, resequences union-merged events. Tested with a real two-branch git scenario. Not covered: GitHub issue titles keep the old id until the next github sync (the task digest changes, so sync updates them).")
+(140 "2026-09-26T23:04:58Z" "claude" claim "T21" "claude")
+(141 "2026-09-26T23:05:02Z" "claude" done "T21" "1 check passed")

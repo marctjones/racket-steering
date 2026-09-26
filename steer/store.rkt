@@ -6,6 +6,7 @@
          "common.rkt")
 (provide find-root store-dir init-store! with-store-lock
          load-tasks load-task save-task! next-id normalize-id id-number
+         parse-task-text delete-task! write-events! tasks-dir task-file-path
          task-ref task-set task-update
          append-event! read-events last-seq
          load-config config-ref save-config!
@@ -142,6 +143,27 @@
 
 (define (save-task! root t)
   (write-rktd (task-file root (task-ref t 'id)) (task->alist (task-set t 'updated (now-iso)))))
+
+;; Parse the text of one task file (also used on `git show` output). Raises exn:steer when unreadable.
+(define (parse-task-text text label)
+  (define d (with-handlers ([exn:fail:read?
+                             (λ (e) (fail! 'store-corrupt (format "cannot read ~a: ~a" label (car (string-split (exn-message e) "\n")))
+                                           #:hint "fix or restore the file from git" #:code 3))])
+              (parameterize ([read-accept-reader #f] [read-accept-lang #f]) (read (open-input-string text)))))
+  (alist->task d label))
+
+(define (task-file-path root id) (task-file root id))
+
+(define (delete-task! root id)
+  (define f (task-file root id))
+  (when (file-exists? f) (delete-file f)))
+
+;; Rewrite the whole event log (used by `steer doctor --fix` to resequence). Hold the store lock.
+(define (write-events! root evs)
+  (define tmp (path-add-extension (events-file root) #".tmp"))
+  (call-with-output-file tmp #:exists 'truncate
+    (λ (o) (for ([e evs]) (write e o) (newline o))))
+  (rename-file-or-directory tmp (events-file root) #t))
 
 ;; Ids are T<n>. Accepts "T12", "t12", "12".
 (define (normalize-id s)

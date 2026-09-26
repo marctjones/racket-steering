@@ -3,7 +3,7 @@
 ;; Global flags may appear anywhere: --json --full --limit N --agent NAME --root DIR
 ;; Exit codes (stable, hooks depend on them): 0 ok · 1 findings/refused · 2 usage · 3 internal.
 (require racket/list racket/string racket/port json
-         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt" "doc.rkt")
+         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt" "doc.rkt" "doctor.rkt")
 (provide main)
 
 (define version "0.2.0")
@@ -60,6 +60,8 @@ EOF
    (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE.rkt...]" "public API lock for Racket modules: exports, arity, contracts; diff classifies breaks")
    (cmd "doc" cmd-doc "steer doc exists|sig ID [MODULE] | search WORD... | exports MODULE"
         "Racket documentation lookup: does this name exist, its documented signature, what a module provides")
+   (cmd "doctor" cmd-doctor "steer doctor [--against GIT-REF] [--fix]"
+        "check .steer/ integrity; find task ids another branch uses for a different task; --fix renumbers ours and resequences events")
    (cmd "github" cmd-github "steer github sync (--tag T... | --all) [--dry-run] [--repo OWNER/NAME]"
         "mirror tasks to GitHub: milestone-tagged tasks become milestones, the rest issues; re-runs send only changes")
    (cmd "skills" (λ (a) (cmd-skills a)) "steer skills list|install [--user] [--force] [NAME...]" "install the bundled Claude Code skills")
