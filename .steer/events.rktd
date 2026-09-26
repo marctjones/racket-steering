@@ -133,3 +133,6 @@
 (133 "2026-09-26T08:05:21Z" "claude" github "T54" "update issue #23")
 (134 "2026-09-26T08:05:22Z" "claude" github "T55" "update issue #24")
 (135 "2026-09-26T08:05:23Z" "claude" github "T56" "update issue #25")
+(136 "2026-09-26T22:45:58Z" "claude" claim "T12" "claude")
+(137 "2026-09-26T23:01:07Z" "claude" note "T12" "Built steer/doc.rkt (exists/sig/search/exports), worker in installed racket. exists warns not-in-racket for names only in srfi/teaching languages. Suggestions: phrase synonyms + verb-token ranking + edit distance over racket/* names. Held-out fresh2: top-1 4 -> 13 of 20, top-5 11 -> 14. Details notes/14.")
+(138 "2026-09-26T23:01:24Z" "claude" done "T12" "1 check passed")

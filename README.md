@@ -28,6 +28,7 @@ One executable, short text output (or `--json` in the note-03 protocol), stable 
 | continuity | `resume` (budgeted packet) · `since N` (event cursor) · `graph` (cycles, layers, critical path) | F1 |
 | plan drift | `stale` / `refresh`: symbol anchors (`file#name`) hashed over the datum, so reformatting is not drift | F2 |
 | Racket code | `syntax [--fix]` (reader error + a verified, indentation-guided repair) · `dup` (clones modulo renaming) · `api snapshot/diff/show` | A1 F5 F3 |
+| Racket docs | `doc exists\|sig\|search\|exports`: is this name real, its documented signature and `(require ...)`, nearest racket names for a wrong one | B1 |
 | harness | `skills install` · `hook session-start` · `hook post-edit` · `hook config` | F7 |
 
 What makes it agent-friendly: `done` runs the task's checks and refuses on failure; `checkpoint` requires
@@ -45,8 +46,8 @@ make test-bin # the end-to-end suite against the compiled binary
 make install  # dist/ (self-contained) + symlink in ~/.local/bin (PREFIX=... to change)
 ```
 
-The distributed binary runs without Racket installed, except `steer api`, which loads user modules
-with the installed `racket` in a time-limited worker process.
+The distributed binary runs without Racket installed, except `steer api` and `steer doc`, which use the
+installed `racket` (to load user modules, or to read its documentation) in a time-limited worker process.
 
 ### Sample data (never committed)
 
@@ -59,6 +60,7 @@ make samples           # fetch + build eval sets: T1/T2 tasks and T3 repair muta
 make samples-validate  # every exercism reference passes its tests, every mutant fails them
 racket scripts/corpus-gate.rkt         # false positives / crashes of steer over ~6,300 real files
 racket scripts/syntax-accuracy.rkt 400 # seeded paren errors: fix accuracy (results in notes/10)
+racket scripts/doc-hallucination.rkt   # wrong identifiers: flagged? right name suggested? (notes/14)
 ```
 
 Tasks whose check reads `samples/` (e.g. T8) fail on a fresh clone until `make samples` has run.
@@ -93,6 +95,7 @@ Plan format (`steer help import`):
 | `notes/05-prior-art-and-questions.md` | related work to read, open questions, risks, non-goals |
 | `notes/06-continuity-and-drift.md` | tracker, anchors, drift and clone tools; tool/model division of labour; tested Datalog limits |
 | `notes/10-syntax-accuracy.md` | measured: 0 false positives on 6,291 files; 86 % exact repair of seeded paren errors |
+| `notes/14-doc-lookup.md` | `steer doc`: catches wrong names; held-out top-1 4 → 13 of 20; what is measured and what is not |
 | `notes/11-regular-grammar-languages.md` | conlangs and controlled English for steering; token measurements; G-series tools; chosen: acceptance criteria |
 | `steer/` | the CLI (`main.rkt` entry; one module per concern) |
 | `skills/` | Claude Code skills, embedded into the binary at compile time |

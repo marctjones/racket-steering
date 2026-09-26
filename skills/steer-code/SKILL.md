@@ -17,6 +17,22 @@ verified repairs for you. Either way, rerun the tests: about 1 in 10 verified re
 nests differently than you meant (notes/10). Never retype the whole file to fix a paren.
 With the PostToolUse hook installed this check runs after every edit of a Racket file.
 
+## Does this function exist? What is its signature?
+
+Check before you use an unfamiliar Racket function; a wrong name costs a whole edit-and-rerun cycle.
+Quote names that contain `?`, `*` or `!`, because zsh expands them as globs:
+
+```
+steer doc exists 'string-starts-with?'   # → not documented → did you mean string-prefix?
+steer doc sig 'string-contains?'         # signature, argument contracts, (require ...), one-line description
+steer doc search string contains         # names containing every word
+steer doc exports racket/string          # what a module provides (also works on your own .rkt files)
+```
+
+A `not-in-racket` warning means the name exists only in another library (srfi, a teaching language):
+require that library explicitly or use the racket/* name it suggests. Each lookup takes about a
+second (it reads the installed docs), so use it for names you are unsure of, not for every call.
+
 ## Duplicates
 
 Before adding a helper, check whether an equivalent already exists:
