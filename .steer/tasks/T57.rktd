@@ -3,8 +3,8 @@
  (status open)
  (priority 3)
  (goal
-  "Python and C# projects get the same drift gates Racket has: an API lock that `done` can check and clone detection over non-Racket files; verified end to end on the fixtures from M1.")
- (after ("T54" "T55" "T56" "T18"))
+  "Python and C# projects get the same drift gates Racket has, delivered through the generic graph contract (XL3, T58-T69) rather than bespoke per-language locks: api snapshot --entries (T67) gives both languages a real API lock done can check, using shape-lock's generic classifier; T56/T55 remain available as optional precision upgrades when a project has a .NET SDK or PublicApiAnalyzers files, never required. Clone detection (T18) over non-Racket files is tracked separately - it is not part of the graph/reachability design and doesn't reuse it. Verified end to end on the fixtures from M1 and XL1.")
+ (after ("T18" "T67" "T69"))
  (checks ("raco test tests/xlang-api-test.rkt"))
  (anchors ())
  (touches ())
@@ -12,5 +12,11 @@
  (claimed-by #f)
  (github ((digest "b42824ce7039") (kind milestone) (number 5)))
  (created "2026-09-26T08:04:49Z")
- (updated "2026-09-26T08:05:02Z")
- (log ()))
+ (updated "2026-09-27T08:50:55Z")
+ (log
+  (((agent "claude")
+    (kind note)
+    (seq 165)
+    (text
+     "Re-scoped onto the XL3 code-graph design (T58-T69) rather than the original T54/T55/T56 chain, after the design review concluded T55 (Roslyn worker) and T56 (its C# baseline) should be optional precision upgrades, not required dependencies - the generic extract/resolve-import contract (implemented once per language: rkt-extract/py-extract/cs-extract) already gives every language a no-toolchain API lock via shape-lock (T67). T54 (Python ast-based lock) stays a real dependency of T67, so it isn't removed, just no longer wired to a bespoke lock format. See notes/12 cross-language review's XL3 follow-up design for the full reasoning.")
+    (ts "2026-09-27T08:50:55Z")))))

@@ -1,7 +1,7 @@
 ((id "T55")
  (title "Single-file Roslyn worker for exact C# declarations and diagnostics")
  (status open)
- (priority 3)
+ (priority 4)
  (goal
   "Ship the .NET 10 file-based app (`dotnet run worker.cs`, #:package Microsoft.CodeAnalysis.CSharp) that lists members with kinds, generic arity, parameter types, spans and normalised hashes plus syntax diagnostics; used by `steer syntax --deep` and `stale --exact` when a .NET 10 SDK is present, skipped otherwise.")
  (after ("T50"))
@@ -12,5 +12,11 @@
  (claimed-by #f)
  (github ((digest "f47f514360fc") (kind issue) (number 24)))
  (created "2026-09-26T08:04:49Z")
- (updated "2026-09-26T08:05:22Z")
- (log ()))
+ (updated "2026-09-27T08:50:29Z")
+ (log
+  (((agent "claude")
+    (kind note)
+    (seq 160)
+    (text
+     "Demoted to an optional precision upgrade per the XL3 code-graph design (see notes/12 follow-up): cs-extract (T63) gives an exact-enough, no-SDK C# graph and API shape via the generic extract/resolve-import contract every language implements. T55 stays useful when a .NET 10 SDK IS present (raises declared-> exact confidence, real diagnostics), but nothing downstream requires it anymore - T56 no longer depends on it.")
+    (ts "2026-09-27T08:50:29Z")))))
