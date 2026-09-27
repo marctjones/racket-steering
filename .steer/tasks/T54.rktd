@@ -1,7 +1,7 @@
 ((id "T54")
  (title
   "Static Python API lock: __all__, signatures and class members via ast; diff classifies breaks")
- (status open)
+ (status done)
  (priority 2)
  (goal
   "steer api snapshot pkg/mod.py records public names with ast.unparse signatures without importing the module; diff marks removed names or parameters and new required parameters breaking, added optional parameters compatible, annotation or default changes to review. Its signature format is what shape-lock (T67) reads through the generic graph-ir shape field, so this task's output composes with the same-shaped Racket/C# entry-shape locks rather than being a standalone Python-only lock format.")
@@ -12,14 +12,26 @@
    ((hash "fae0beb3ca1f") (ref "steer/api.rkt#read-lock"))))
  (touches ())
  (tags ("cross-language"))
- (claimed-by #f)
+ (claimed-by "xl3")
  (github ((digest "2f9405547e89") (kind issue) (number 23)))
  (created "2026-09-26T08:04:49Z")
- (updated "2026-09-27T08:52:57Z")
+ (updated "2026-09-27T11:01:10Z")
  (log
   (((agent "claude")
     (kind note)
     (seq 167)
     (text
      "Reworded (no behavior change) so its output is explicitly framed as feeding shape-lock's (T67) generic entry-shape field rather than a Python-only lock format - part of the XL3 code-graph design's re-scoping of T54-T57.")
-    (ts "2026-09-27T08:51:18Z")))))
+    (ts "2026-09-27T08:51:18Z"))
+   ((agent "xl3")
+    (kind note)
+    (seq 297)
+    (text
+     "Not in the XL3 tracker's own T58-T70 range, but a real blocking dependency of T67 (entry-shape lock v2) - implemented it since it directly unblocks work in-scope, not as an unrelated addition. Extends steer/api.rkt's api-describe/api-diff to dispatch by file extension: .py modules go through python.rkt's py-extract-batch (T62) rather than the Racket worker's dynamic-instantiation path, and their lock entries are (name 'python-def shape) - a different shape from Racket's (name kind arity keywords contract) 5-tuple, so api-diff dispatches on the entry's own kind tag rather than unpacking a fixed arity. A Python signature's parameter list is diffed by NAME (depth-aware comma-splitting, so a default value's own commas/parens never split wrong), not structurally like Racket's arity/keywords, since a flat signature string is what py-extract already gives (T67 reads this SAME shape field, not a duplicate).")
+    (ts "2026-09-27T11:01:08Z"))
+   ((agent "xl3")
+    (checks (((cmd "raco test tests/py-api-test.rkt") (secs 1.2))))
+    (kind done)
+    (seq 298)
+    (ts "2026-09-27T11:01:10Z")
+    (verified #t)))))

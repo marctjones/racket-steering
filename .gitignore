@@ -4,3 +4,8 @@ dist/
 # sample corpora and eval sets: fetched by `make samples`, never committed
 samples/
 .venv-mlx/
+# T66/T68: any .steer/ directory the graph tests/measurement create when run directly against
+# tests/fixtures/* (the fixtures themselves are checked in; the store and cache they build up while
+# running tests against them in place is not) - a stray one caused a real stale-cache test failure
+# once during T68 (an extractor change was invisible until the cache was deleted by hand).
+tests/fixtures/**/.steer/

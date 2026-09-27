@@ -3,7 +3,7 @@
 ;; baseline hash taken when the plan was written. If the code there changes, the plan may be stale.
 ;; Racket files: exact definition lookup, hash over the datum (formatting-insensitive).
 ;; Other files: a keyword/indentation heuristic, clearly labelled as such.
-(require racket/list racket/string "srcread.rkt" "python.rkt" "csharp.rkt"
+(require racket/list racket/string "srcread.rkt" "lang.rkt"
          (only-in "common.rkt" closest))
 (provide parse-anchor resolve-anchor anchor-state baseline-anchor symbol->anchor-name anchor-names-in-file)
 
@@ -12,18 +12,11 @@
   (unless m (raise-argument-error 'parse-anchor "path or path#name" s))
   (values (cadr m) (caddr m)))
 
-;; Every definable name in `p` (Racket, Python, C#; '() for a language without a name lister, and
-;; for a file that fails to parse). Used only for did-you-mean; never raises.
+;; Every definable name in `p` (any language whose gate has a list-names slot; '() for a language
+;; without one, and for a file that fails to parse). Used only for did-you-mean; never raises.
 (define (anchor-names-in-file p)
   (with-handlers ([(λ (e) #t) (λ (e) '())])
-    (define text (file->text p))
-    (cond
-      [(racket-file? p)
-       (define-values (forms _lang _t) (read-racket-source text))
-       (map (λ (d) (symbol->anchor-name (car d))) (find-definitions forms))]
-      [(python-file? p) (python-list-names text)]
-      [(csharp-file? p) (cs-list-names text)]
-      [else '()])))
+    (or (lang-list-names p (file->text p)) '())))
 
 ;; T51: a task pointing past an EXISTING file at a name that file does not define is very likely a
 ;; typo or the wrong qualification, not "the task will create this" (that reading only makes sense
@@ -51,55 +44,25 @@
        [(not name)
         (hasheq 'ref ref 'found? #t 'method 'file 'line 1
                 'end (add1 (length (regexp-match-positions* #rx"\n" text))) 'hash (text-hash text))]
-       [(racket-file? p)
-        (with-handlers ([exn:fail:read? (λ (e) (miss (string-append "unreadable: " (clip-msg e)) 'racket))])
-          (define-values (forms _lang _t) (read-racket-source text #:source rel))
-          (define d (for/first ([d (find-definitions forms)]
-                                #:when (or (equal? (symbol->anchor-name (car d)) name)
-                                           (equal? (symbol->string (car d)) name)))
-                      d))
-          (cond
-            [d
-             (define f (cdr d))
-             (hasheq 'ref ref 'found? #t 'method 'racket
-                     'line (syntax-line f)
-                     'end (position->line text (+ (syntax-position f) (max 0 (sub1 (syntax-span f)))))
-                     'hash (datum-hash f))]
-            [else (miss (format "no definition of ~a" name) 'racket)]))]
-       ;; Python: exact resolution of any dotted qualification (Class.method) via the stdlib ast,
-       ;; instead of the indentation heuristic (which finds the wrong block on multi-line signatures
-       ;; and the wrong same-named definition on overloads: note 12).
-       [(python-file? p)
-        (define r (python-find-anchor text name))
+       ;; One dispatch for every language with a gate (T58): each find-anchor does its own exact
+       ;; resolution (Racket: datum lookup and hash; Python: the stdlib ast, any dotted qualification;
+       ;; C#: a member scanner over generics/properties/indexers/operators/partial classes) instead of
+       ;; the indentation heuristic, which finds the wrong block on multi-line signatures and the wrong
+       ;; same-named definition on overloads (note 12). A language with no gate, or a gate with no
+       ;; find-anchor slot, falls back to the generic heuristic below.
+       [(gate-for-path p)
+        (define method (gate-name (gate-for-path p)))
+        (define find (and (gate-for-path p) (lang-find-anchor p text name)))
         (cond
-          [(hash-ref r 'found? #f)
-           (hasheq 'ref ref 'found? #t 'method 'python 'kind (hash-ref r 'kind) 'line (hash-ref r 'line) 'end (hash-ref r 'end)
-                   'hash (hash-ref r 'hash) 'shadowed (hash-ref r 'shadowed #f))]
+          [(not find) (heuristic text ref name)]
+          [(hash-ref find 'found? #f)
+           (hasheq 'ref ref 'found? #t 'method method 'kind (hash-ref find 'kind #f)
+                   'line (hash-ref find 'line) 'end (hash-ref find 'end)
+                   'hash (hash-ref find 'hash) 'shadowed (hash-ref find 'shadowed #f))]
           ;; an ambiguity list (the name exists, just not uniquely) is a better suggestion than fuzzy
           ;; matching against every name in the file, so it takes priority over the did-you-mean fallback
-          [else (miss (hash-ref r 'problem "not found") 'python (hash-ref r 'candidates '()))])]
-       ;; C#: exact resolution via a member scanner (generics, properties, indexers, operators,
-       ;; partial classes, Allman/K&R bodies), instead of the indentation heuristic. Overloads and
-       ;; same-named members across partial declarations need `Name/arity` or `Name(type,type)`.
-       [(csharp-file? p)
-        (define r (cs-find-anchor text name))
-        (cond
-          [(hash-ref r 'found? #f)
-           (hasheq 'ref ref 'found? #t 'method 'csharp 'kind (hash-ref r 'kind) 'line (hash-ref r 'line) 'end (hash-ref r 'end)
-                   'hash (hash-ref r 'hash) 'shadowed (hash-ref r 'shadowed #f))]
-          [else (miss (hash-ref r 'problem "not found") 'csharp (hash-ref r 'candidates '()))])]
+          [else (miss (hash-ref find 'problem "not found") method (hash-ref find 'candidates '()))])]
        [else (heuristic text ref name)])]))
-
-(define (python-file? p) (regexp-match? #rx"[.]pyi?$" (path->string p)))
-(define (csharp-file? p) (regexp-match? #rx"[.]cs$" (path->string p)))
-
-(define (clip-msg e) (car (string-split (exn-message e) "\n")))
-
-;; How a definition name is written after `#`: plainly, or in printed form when the plain text would
-;; be empty or ambiguous (Rosette defines `||`, which Racket reads as the empty symbol).
-(define (symbol->anchor-name s)
-  (define str (symbol->string s))
-  (if (or (string=? str "") (regexp-match? #px"[\\s#|]" str)) (format "~s" s) str))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Heuristic for non-Racket files: find a definition line by keyword, then take the indented block.

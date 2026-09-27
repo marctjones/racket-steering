@@ -57,7 +57,9 @@
   (unless (file-exists? (config-file root)) (write-rktd (config-file root) default-config))
   (unless (file-exists? (events-file root)) (call-with-output-file (events-file root) void))
   (define gi (build-path (store-dir root) ".gitignore"))
-  (unless (file-exists? gi) (call-with-output-file gi (λ (o) (display ".lock\n*.tmp\nfailures.rktd\n" o)))))
+  ;; T66: the per-file graph cache is derived, disk-local data (keyed by content hash), never
+  ;; committed - like .lock and failures.rktd, it belongs to this checkout, not the project's history.
+  (unless (file-exists? gi) (call-with-output-file gi (λ (o) (display ".lock\n*.tmp\nfailures.rktd\ncache/\n" o)))))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Locking: exclusive, polled, with a clear failure instead of a hang.

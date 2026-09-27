@@ -127,6 +127,10 @@
     (define stale (stale-claims (hash-values by-id) (config-ref root 'stale-claim-days 7)))
     (define theirs (and ref (tasks-at-ref root ref)))
     (define plan (if theirs (collision-plan by-id theirs) '()))
+    ;; T66: the per-file graph cache (.steer/cache/) is derived, disk-local data - warn if any of it
+    ;; ever got committed (an old checkout predating this .gitignore line, or a --force add).
+    (define-values (_c tracked-cache) (git root "ls-files" ".steer/cache"))
+    (define tracked-cache-files (filter non-empty-string? (string-split tracked-cache "\n")))
     (define fixed '())
     (define (fixed! s) (set! fixed (cons s fixed)))
     ;; --fix: resequence events; renumber our colliding tasks (never touches theirs)
@@ -159,6 +163,12 @@
                       #:task (car p) #:fix (format "`steer doctor --against ~a --fix` renumbers ours to ~a" ref (cdr p))))
            '())
        (filter (λ (f) (memq (hash-ref f 'kind) '(cycle missing-dependency dropped-dependency))) graph)
+       (if (pair? tracked-cache-files)
+           (list (finding 'warning 'tracked-cache
+                          (format "~a file~a under .steer/cache/ ~a tracked by git - it is derived, disk-local data, never meant to be committed"
+                                  (length tracked-cache-files) (plural (length tracked-cache-files)) (if (= (length tracked-cache-files) 1) "is" "are"))
+                          #:file ".steer/cache" #:fix "git rm -r --cached .steer/cache && git commit"))
+           '())
        (for/list ([s stale])
          (finding 'warning 'stale-claim (format "~a has been active for ~a days" (car s) (cdr s)) #:task (car s)
                   #:fix (format "`steer release ~a` if the agent is gone" (car s))))))

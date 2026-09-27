@@ -7,9 +7,10 @@
 ;;   syntax gate (T45): a SyntaxError becomes a located finding; for the shapes Python names precisely
 ;;   (a bracket never closed, an unmatched or mismatched closer, a missing colon) the worker also tries an
 ;;   edit and offers it only when the file compiles afterwards ("verified").
-(require racket/list racket/string racket/port json
-         "common.rkt" "syntax-check.rkt")
-(provide python-gate-check python-available? run-python-worker python-find-anchor python-list-names)
+(require racket/list racket/string racket/port racket/path json
+         "common.rkt" "syntax-check.rkt" "graph.rkt")
+(provide python-gate-check python-available? run-python-worker python-find-anchor python-list-names
+         py-extract py-extract-batch py-resolve-import)
 
 (define worker-source #<<WORKER
 import sys, ast, json, re, warnings
@@ -296,6 +297,196 @@ def short_hash(s):
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:12]
 
 
+# ---------------------------------------------------------------------------------------------
+# extract (T62): the graph-ir contract. One file-facts dict per input file; batched over stdin so a
+# whole project costs one process, not one per file.
+
+def _decorator_name(d):
+    if isinstance(d, ast.Name):
+        return d.id
+    if isinstance(d, ast.Attribute):
+        return d.attr
+    if isinstance(d, ast.Call):
+        return _decorator_name(d.func)
+    return None
+
+
+def _mkref(kind, name, receiver, scope, arity, line):
+    return {"kind": kind, "name": name, "receiver": receiver, "scope": scope, "arity": arity, "line": line}
+
+
+def _collect_calls(node, scope, out):
+    """Call/decorator-style refs inside `node`'s own body only - a nested def/class's body is scanned
+    at ITS OWN scope when the outer Extractor visits it, not here (no double-counting, no wrong scope)."""
+
+    class Collector(ast.NodeVisitor):
+        def visit_FunctionDef(self, n):
+            pass
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, n):
+            pass
+
+        def visit_Call(self, n):
+            fn = n.func
+            arity = len(n.args)
+            if isinstance(fn, ast.Name):
+                out.append(_mkref("call", fn.id, None, scope, arity, n.lineno))
+            elif isinstance(fn, ast.Attribute):
+                recv = None
+                base = fn.value
+                if isinstance(base, ast.Name) and base.id == "self":
+                    recv = "self"
+                elif isinstance(base, ast.Call) and isinstance(base.func, ast.Name) and base.func.id == "super":
+                    recv = "base"
+                # anything else (a plain object, a module alias, ClassName.method()) is left with no
+                # receiver hint: the linker's generic name-based resolution chain handles it, and Python
+                # attribute calls on an arbitrary object are inherently dynamic anyway (note 12/16).
+                out.append(_mkref("call", fn.attr, recv, scope, arity, n.lineno))
+            self.generic_visit(n)
+
+    Collector().generic_visit(node)
+
+
+def _signature_of(node):
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        try:
+            args_src = ast.unparse(node.args)
+        except Exception:
+            args_src = ""
+        prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
+        return prefix + " " + node.name + "(" + args_src + ")"
+    if isinstance(node, ast.ClassDef):
+        try:
+            bases_src = ", ".join(ast.unparse(b) for b in node.bases)
+        except Exception:
+            bases_src = ""
+        return "class " + node.name + ("(" + bases_src + ")" if bases_src else "")
+    return node.name
+
+
+def _mkdef(kind, name, qualname, scope, node, shape, bases, decorators, entry_lines):
+    start, end = def_span(node)
+    return {"kind": kind, "name": name, "qualname": qualname, "scope": scope, "line": start, "end": end,
+            "shape": shape, "hash": short_hash(normalize_for_hash(node)), "bases": bases,
+            "decorators": [d for d in decorators if d], "entry": start in entry_lines, "exported": True}
+
+
+class Extractor(ast.NodeVisitor):
+    """One pass, keeping a dotted-name stack (like QualifiedVisitor) plus a parallel kind stack so a
+    function directly inside a class is a 'method' (or 'constructor' for __init__), and nested
+    functions/classes are still visited (and their OWN calls scanned) even though Racket's local-
+    shadowing subtraction has no Python equivalent here (LEGB scoping is genuinely more involved; this
+    stays an intentional may-call over-approximation, never a false claim of precision - notes/12/16)."""
+
+    def __init__(self, entry_lines):
+        self.stack = []
+        self.kind_stack = []
+        self.defs = []
+        self.refs = []
+        self.entry_lines = entry_lines
+
+    def scope(self):
+        return ".".join(self.stack) if self.stack else None
+
+    def qual(self, name):
+        return ".".join(self.stack + [name])
+
+    def _decorator_refs(self, node):
+        for d in node.decorator_list:
+            dn = _decorator_name(d)
+            if dn:
+                self.refs.append(_mkref("decorates", dn, None, self.scope(), None, d.lineno))
+
+    def visit_ClassDef(self, node):
+        qn = self.qual(node.name)
+        try:
+            bases = [ast.unparse(b) for b in node.bases]
+        except Exception:
+            bases = []
+        decorators = [_decorator_name(d) for d in node.decorator_list]
+        self._decorator_refs(node)
+        self.defs.append(_mkdef("class", node.name, qn, self.scope(), node, _signature_of(node), bases, decorators, self.entry_lines))
+        _collect_calls(node, qn, self.refs)
+        self.stack.append(node.name)
+        self.kind_stack.append("class")
+        for child in node.body:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self.visit(child)
+        self.stack.pop()
+        self.kind_stack.pop()
+
+    def visit_FunctionDef(self, node):
+        self._function(node)
+
+    def visit_AsyncFunctionDef(self, node):
+        self._function(node)
+
+    def _function(self, node):
+        qn = self.qual(node.name)
+        in_class = bool(self.kind_stack) and self.kind_stack[-1] == "class"
+        kind = "constructor" if (in_class and node.name == "__init__") else ("method" if in_class else "function")
+        decorators = [_decorator_name(d) for d in node.decorator_list]
+        self._decorator_refs(node)
+        self.defs.append(_mkdef(kind, node.name, qn, self.scope(), node, _signature_of(node), [], decorators, self.entry_lines))
+        _collect_calls(node, qn, self.refs)
+        self.stack.append(node.name)
+        self.kind_stack.append("function")
+        for child in node.body:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self.visit(child)
+        self.stack.pop()
+        self.kind_stack.pop()
+
+
+def _all_names(node):
+    """The list of string literals in `__all__ = [...]` / `__all__ = (...)`, or None if not that shape."""
+    if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "__all__"):
+        return None
+    v = node.value
+    if isinstance(v, (ast.List, ast.Tuple)):
+        return [e.value for e in v.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+    return None
+
+
+def extract_file(src, path, entry_lines):
+    tree, err = try_compile(src, path)
+    if err is not None:
+        return {"path": path, "lang": "python", "defs": [], "refs": [], "imports": [],
+                "has_statements": False, "content_hash": short_hash(src)}
+    ex = Extractor(set(entry_lines))
+    ex.visit(tree)
+    _collect_calls(tree, None, ex.refs)   # top-level (module scope) calls
+    imports = []
+    has_stmt = False
+    all_list = None
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.append({"spec": alias.name, "alias": alias.asname, "line": node.lineno})
+        elif isinstance(node, ast.ImportFrom):
+            level = node.level or 0
+            spec = ("." * level) + (node.module or "")
+            imports.append({"spec": spec, "alias": None, "line": node.lineno})
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            pass
+        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            pass  # a bare docstring
+        else:
+            names = _all_names(node)
+            if names is not None:
+                all_list = names
+            else:
+                has_stmt = True
+    for d in ex.defs:
+        if d["scope"] is None:
+            d["exported"] = (d["name"] in all_list) if all_list is not None else (not d["name"].startswith("_"))
+    return {"path": path, "lang": "python", "defs": ex.defs, "refs": ex.refs, "imports": imports,
+            "has_statements": has_stmt, "content_hash": short_hash(src)}
+
+
 def main():
     cmd = sys.argv[1]
     name = sys.argv[2] if len(sys.argv) > 2 else "<string>"
@@ -315,6 +506,15 @@ def main():
             v = QualifiedVisitor()
             v.visit(tree)
             print(json.dumps(sorted(v.defs.keys())))
+    elif cmd == "extract":
+        payload = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
+        for item in payload:
+            try:
+                result = extract_file(item["text"], item["path"], item.get("entry_lines", []))
+            except Exception as e:
+                result = {"path": item.get("path"), "lang": "python", "defs": [], "refs": [], "imports": [],
+                          "has_statements": False, "content_hash": "", "error": str(e)}
+            print(json.dumps(result))
     else:
         print(json.dumps({"error": "unknown command " + cmd}))
 
@@ -403,3 +603,105 @@ WORKER
     [else
      (define r (run-python-worker "names" text "<anchor>"))
      (if (and r (list? r)) r '())]))
+
+;; ---------------------------------------------------------------------------------------------
+;; extract (T62): the graph-ir contract. Batched (one process for a whole project) rather than one
+;; process per file, since T68's measurement runs this over real, many-file repos.
+
+;; `;; steer: entry` -> `# steer: entry` for Python; same "the line right after the comment" contract
+;; Racket's rkt-extract uses.
+(define entry-comment-rx #px"#\\s*steer:\\s*entry\\s*$")
+(define (python-entry-lines text)
+  (define lines (string-split text "\n" #:trim? #f))
+  (for/list ([l lines] [i (in-naturals 1)] #:when (regexp-match? entry-comment-rx l)) (add1 i)))
+
+;; the `json` library decodes JSON null as the symbol 'null (via (json-null)); every optional field
+;; the worker may send as null needs that turned back into #f before it reaches a graph.rkt struct.
+(define (un-null v) (if (eq? v 'null) #f v))
+
+(define (jsexpr->def h)
+  (def (string->symbol (hash-ref h 'kind)) (hash-ref h 'name) (hash-ref h 'qualname) (un-null (hash-ref h 'scope #f))
+       (hash-ref h 'line) (hash-ref h 'end) (un-null (hash-ref h 'shape #f)) (hash-ref h 'hash)
+       (hash-ref h 'bases '()) (hash-ref h 'decorators '()) (hash-ref h 'entry #f) (hash-ref h 'exported #t)))
+
+(define (jsexpr->ref h)
+  (ref (string->symbol (hash-ref h 'kind)) (hash-ref h 'name)
+       (let ([r (un-null (hash-ref h 'receiver #f))]) (and r (string->symbol r)))
+       (un-null (hash-ref h 'scope #f)) (un-null (hash-ref h 'arity #f)) (hash-ref h 'line 0)))
+
+(define (jsexpr->import h) (import (hash-ref h 'spec) (un-null (hash-ref h 'alias #f)) (hash-ref h 'line 0)))
+
+(define (jsexpr->file-facts h)
+  (file-facts (hash-ref h 'path) 'python (map jsexpr->def (hash-ref h 'defs '()))
+              (map jsexpr->ref (hash-ref h 'refs '())) (map jsexpr->import (hash-ref h 'imports '()))
+              (hash-ref h 'has_statements #f) (hash-ref h 'content_hash "")))
+
+;; → (listof jsexpr), one per input item, or #f on failure. items: (listof (list path text entry-lines)).
+(define (run-python-worker-extract items #:timeout [timeout 60])
+  (define exe (python-exe))
+  (and exe
+       (with-handlers ([exn:fail? (λ (e) #f)])
+         (define-values (p out in err) (subprocess #f #f #f exe "-I" "-S" "-c" worker-source "extract" "<batch>"))
+         (define payload (for/list ([it items]) (hasheq 'path (car it) 'text (cadr it) 'entry_lines (caddr it))))
+         (write-string (jsexpr->string payload) in)
+         (close-output-port in)
+         (define out-text (box ""))
+         (define t1 (thread (λ () (set-box! out-text (port->string out)))))
+         (define t2 (thread (λ () (port->string err))))
+         (define done? (sync/timeout timeout p))
+         (unless done? (subprocess-kill p #t))
+         (subprocess-wait p)
+         (thread-wait t1) (thread-wait t2)
+         (close-input-port out) (close-input-port err)
+         (and done? (eqv? (subprocess-status p) 0)
+              (let ([in2 (open-input-string (unbox out-text))])
+                (let loop ([acc '()])
+                  (define v (with-handlers ([exn:fail? (λ (e) eof)]) (read-json in2)))
+                  (if (eof-object? v) (reverse acc) (loop (cons v acc)))))))))
+
+;; items: (listof (cons path text)) → (listof file-facts), same order. A file that fails to parse gets
+;; an empty (but present) file-facts, never dropped; python3 missing does the same for every item.
+(define (py-extract-batch items)
+  (cond
+    [(null? items) '()]
+    [(not (python-available?)) (for/list ([it items]) (file-facts (car it) 'python '() '() '() #f ""))]
+    [else
+     (define entries (for/list ([it items]) (list (car it) (cdr it) (python-entry-lines (cdr it)))))
+     (define results (run-python-worker-extract entries))
+     (cond
+       [(and results (= (length results) (length items))) (map jsexpr->file-facts results)]
+       [else (for/list ([it items]) (file-facts (car it) 'python '() '() '() #f ""))])]))
+
+;; the lang.rkt gate's `extract` slot: (text file) -> file-facts, same six-function contract
+;; rkt-extract/cs-extract implement.
+(define (py-extract text path) (car (py-extract-batch (list (cons path text)))))
+
+;; resolve-import: a dotted spec resolves under the importing file's own package (relative imports,
+;; leading dots) or under the project root / a top-level `src/` layout (absolute imports) - a file or
+;; a package's __init__.py. No dotted spec that fails to match a real project file is ever forced to
+;; match one: it is external (a `uses` fact / an external graph edge), same as an unresolvable Racket
+;; require.
+(define (py-resolve-import lang spec importing-path root all-paths)
+  (define (rel->fwd p) (string-replace (path->string p) "\\" "/"))
+  (define (path-of dir rel-slashes suffix)
+    (with-handlers ([exn:fail? (λ (e) #f)])
+      (rel->fwd (find-relative-path (simplify-path (build-path root)) (simplify-path (build-path dir (string-append rel-slashes suffix)))))))
+  (define (candidates-under dir rel-slashes)
+    (filter (λ (p) (member p all-paths))
+            (filter values (list (and (non-empty-string? rel-slashes) (path-of dir rel-slashes ".py"))
+                                  (path-of dir (if (non-empty-string? rel-slashes) (string-append rel-slashes "/__init__") "__init__") ".py")))))
+  (cond
+    [(not (string? spec)) '()]
+    [(equal? spec "") '()]
+    [(char=? (string-ref spec 0) #\.)
+     (define m (regexp-match #px"^([.]+)(.*)$" spec))
+     (define dots (string-length (cadr m)))
+     (define rest (string-replace (caddr m) "." "/"))
+     (define base-dir
+       (let loop ([d (let-values ([(d _n _x) (split-path (build-path root importing-path))]) d)] [n (sub1 dots)])
+         (if (<= n 0) d (let-values ([(d2 _n2 _x2) (split-path d)]) (loop d2 (sub1 n))))))
+     (candidates-under base-dir rest)]
+    [else
+     (define rel (string-replace spec "." "/"))
+     (define c1 (candidates-under root rel))
+     (if (pair? c1) c1 (candidates-under (build-path root "src") rel))]))
