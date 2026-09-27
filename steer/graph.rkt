@@ -191,7 +191,11 @@
                   [else #f]))
           (when base-cls-path+qn
             (define bp (car base-cls-path+qn)) (define bq (def-qualname (cdr base-cls-path+qn)))
-            (define base-member (findf (λ (bd) (equal? (bare (def-qualname bd)) (bare (def-qualname d)))) (defs-of bp)))
+            ;; the base member must be a DIRECT member of the base class itself (scope = bq), not
+            ;; just any def sharing the bare name anywhere in that file - otherwise a 3-level chain
+            ;; (LoudDog : Dog : Animal) could match LoudDog.Speak against Animal.Speak instead of its
+            ;; real, direct parent Dog.Speak, whichever happens to come first in the defs list.
+            (define base-member (findf (λ (bd) (and (equal? (def-scope bd) bq) (equal? (bare (def-qualname bd)) (bare (def-qualname d))))) (defs-of bp)))
             (when (and base-member (not (equal? (def-qualname base-member) (def-qualname d))))
               (emit! (gedge (symbol-id (file-facts-path f) (def-qualname d)) (symbol-id bp (def-qualname base-member)) 'overrides 'declared #f #f))))))))
   ;; calls/references/decorates: resolved by scope -> self/base receiver -> same-file bare match ->

@@ -414,7 +414,8 @@
 ;; and `=>`), indexers, operators, destructors, events, fields, partial classes and file-scoped
 ;; namespaces. Overloads and same-named members across partial declarations disambiguate by
 ;; `Name/arity` or `Name(type,type)`; with neither, one unambiguous match is required.
-(provide cs-find-anchor cs-list-names scan-members (struct-out cs-member))
+(provide cs-find-anchor cs-list-names scan-members (struct-out cs-member)
+         scan-types (struct-out cs-type) scan-usings)
 
 (struct frame (kind name open-depth) #:transparent)   ; open-depth: brace depth while inside this frame
 (struct cs-member (qualname kind arity paramtypes start end) #:transparent)  ; start/end: token indices, inclusive
@@ -580,6 +581,139 @@
                 [(> consumed i) (loop consumed depth)]
                 [else (loop (add1 i) depth)])])]))
   (reverse members))
+
+;; ---------------------------------------------------------------------------------------------
+;; T63: type declarations (class/struct/interface/enum/record), each with its nested-dotted qualname
+;; (the SAME addressing scan-members uses), base/interface list and attribute names as written, and
+;; `using` directives - the graph-ir extras scan-members has no reason to carry (it only ever needed
+;; members, for anchors). A separate, smaller pass over the same tokens: reusing scan-members' own
+;; frame/depth tracking for this would tangle two different outputs into one already-delicate loop.
+
+(struct cs-type (qualname kind bases attrs start end) #:transparent)
+
+;; identifiers that start a top-level, comma-separated attribute usage inside `[ ... ]` (tv[open]="[").
+(define (attr-names-in tv open close)
+  (let loop ([i (add1 open)] [acc '()] [want-name? #t])
+    (cond
+      [(>= i close) (reverse acc)]
+      [(and want-name? (ident? tv i)) (loop (skip-to-comma tv (add1 i) close) (cons (tv-text tv i) acc) #f)]
+      [(punct? tv i ",") (loop (add1 i) acc #t)]
+      [else (loop (add1 i) acc want-name?)])))
+(define (skip-to-comma tv i close)
+  (let loop ([i i] [d 0])
+    (cond [(>= i close) i]
+          [(member (tv-text tv i) '("(" "[")) (loop (add1 i) (add1 d))]
+          [(member (tv-text tv i) '(")" "]")) (loop (add1 i) (max 0 (sub1 d)))]
+          [(and (zero? d) (punct? tv i ",")) i]
+          [else (loop (add1 i) d)])))
+
+;; Skip attribute lists, collecting each one's leading identifier(s), then modifier keywords. → (values
+;; index-after-prefix, attr-names).
+(define (skip-prefix/attrs tv i)
+  (let loop ([i i] [attrs '()])
+    (cond [(punct? tv i "[")
+           (define close (skip-group tv i "[" "]"))
+           (loop close (append (reverse (attr-names-in tv i (sub1 close))) attrs))]
+          [(and (ident? tv i) (member (tv-text tv i) member-modifiers)) (loop (add1 i) attrs)]
+          [else (values i (reverse attrs))])))
+
+;; From just after a type's `:`, the base/interface list as bare dotted names (generic arguments and
+;; a record primary constructor's base(args) call are dropped - only the leading name matters for
+;; inherits/implements resolution, which matches by bare name or an exact/imported qualname anyway).
+;; → (values list-of-base-names, index-of-'{'/'where'/';').
+(define (scan-base-list tv i)
+  (define n (vector-length tv))
+  (define (flush cur bases) (if (pair? cur) (cons (string-join (reverse cur) "") bases) bases))
+  (let loop ([i i] [cur '()] [bases '()])
+    (cond
+      [(>= i n) (values (reverse (flush cur bases)) i)]
+      [(ident-text? tv i "where") (values (reverse (flush cur bases)) i)]
+      [(or (punct? tv i "{") (punct? tv i ";")) (values (reverse (flush cur bases)) i)]
+      [(punct? tv i ",") (loop (add1 i) '() (flush cur bases))]
+      [(punct? tv i "<") (loop (skip-generic tv i) cur bases)]
+      [(punct? tv i "(") (loop (skip-group tv i "(" ")") cur bases)]
+      [(or (ident? tv i) (punct? tv i ".")) (loop (add1 i) (cons (tv-text tv i) cur) bases)]
+      [else (loop (add1 i) cur bases)])))
+
+(define (scan-types tokens)
+  (define tv (list->vector tokens))
+  (define n (vector-length tv))
+  (define stack '())         ; each entry: (list 'ns depth) or (list 'type kind qualname bases attrs start-idx depth)
+  (define types '())
+  (define (cur-qualname) (string-join (for/list ([f (reverse stack)] #:unless (eq? (car f) 'ns)) (caddr f)) "."))
+  (define (top-open-depth) (if (null? stack) 0 (last (car stack))))
+  (let loop ([i 0] [depth 0])
+    (cond
+      [(>= i n) (void)]
+      [(punct? tv i "{") (loop (add1 i) (add1 depth))]
+      [(punct? tv i "}")
+       (define d (max 0 (sub1 depth)))
+       (when (and (pair? stack) (= (add1 d) (last (car stack))))
+         (define fr (car stack))
+         (when (eq? (car fr) 'type)
+           (set! types (cons (cs-type (caddr fr) (cadr fr) (cadddr fr) (list-ref fr 4) (list-ref fr 5) i) types)))
+         (set! stack (cdr stack)))
+       (loop (add1 i) d)]
+      [(not (= depth (top-open-depth))) (loop (add1 i) depth)]
+      [else
+       (define-values (j attrs) (skip-prefix/attrs tv i))
+       (cond
+         [(and (< j n) (ident-text? tv j "namespace"))
+          (define after-name
+            (let scan ([k (add1 j)]) (if (and (< k n) (or (ident? tv k) (punct? tv k "."))) (scan (add1 k)) k)))
+          (cond
+            [(and (< after-name n) (punct? tv after-name "{"))
+             (set! stack (cons (list 'ns (add1 depth)) stack))
+             (loop (add1 after-name) (add1 depth))]
+            [(and (< after-name n) (punct? tv after-name ";"))
+             (set! stack (cons (list 'ns depth) stack))
+             (loop (add1 after-name) depth)]
+            [else (loop (max (add1 after-name) (add1 j)) depth)])]
+         [(and (< j n) (ident? tv j) (member (tv-text tv j) type-keywords))
+          (define kind (tv-text tv j))
+          (define name-i (add1 j))
+          (cond
+            [(and (< name-i n) (ident? tv name-i))
+             (define parent-q (cur-qualname))
+             (define qn (if (string=? parent-q "") (tv-text tv name-i) (string-append parent-q "." (tv-text tv name-i))))
+             (define after-name (if (and (< (add1 name-i) n) (punct? tv (add1 name-i) "<")) (skip-generic tv (add1 name-i)) (add1 name-i)))
+             (define after-params (if (and (< after-name n) (punct? tv after-name "(")) (skip-group tv after-name "(" ")") after-name))
+             (define-values (bases after-bases)
+               (if (and (< after-params n) (punct? tv after-params ":")) (scan-base-list tv (add1 after-params)) (values '() after-params)))
+             (define brace-or-semi (skip-to-brace-or-semi tv after-bases))
+             (cond
+               [(and (< brace-or-semi n) (punct? tv brace-or-semi "{"))
+                (set! stack (cons (list 'type kind qn bases attrs name-i (add1 depth)) stack))
+                (loop (add1 brace-or-semi) (add1 depth))]
+               [else (loop (add1 brace-or-semi) depth)])]
+            [else (loop (add1 j) depth)])]
+         [else (loop (add1 j) depth)])]))
+  (reverse types))
+
+;; `using X;` / `using static X;` / `using X = Y.Z;` (an import), never `using (expr) { }` or
+;; `using var x = ...;` (a resource-disposal statement, which happens to share the same keyword).
+;; → list of (spec alias line).
+(define (scan-usings tokens)
+  (define tv (list->vector tokens))
+  (define n (vector-length tv))
+  (define (dotted-name-at i)
+    (let loop ([k i] [acc '()])
+      (if (and (< k n) (or (ident? tv k) (punct? tv k "."))) (loop (add1 k) (cons (tv-text tv k) acc)) (values (string-join (reverse acc) "") k))))
+  (let loop ([i 0] [acc '()])
+    (cond
+      [(>= i n) (reverse acc)]
+      [(and (ident-text? tv i "using") (< (add1 i) n) (or (punct? tv (add1 i) "(") (ident-text? tv (add1 i) "var")))
+       (loop (add1 i) acc)]                              ; a resource-disposal `using`, not an import
+      [(ident-text? tv i "using")
+       (define line (ctok-line (tv-ref tv i)))
+       (define static? (ident-text? tv (add1 i) "static"))
+       (define-values (name after) (dotted-name-at (if static? (+ i 2) (add1 i))))
+       (cond
+         [(and (< after n) (punct? tv after "="))
+          (define-values (target after2) (dotted-name-at (add1 after)))
+          (loop (add1 (skip-to-brace-or-semi tv after2)) (cons (list target name line) acc))]
+         [else (loop (add1 (skip-to-brace-or-semi tv after)) (cons (list name #f line) acc))])]
+      [else (loop (add1 i) acc)])))
 
 ;; Try to parse one member declaration starting at j (after attributes/modifiers were already skipped
 ;; by the caller's skip-prefix). → (values next-index member-or-#f). next-index always makes progress.

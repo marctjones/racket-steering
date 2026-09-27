@@ -282,3 +282,6 @@
 (282 "2026-09-27T09:54:23Z" "xl3" done "T61" "1 check passed")
 (283 "2026-09-27T09:55:15Z" "xl3" claim "T62" "xl3")
 (284 "2026-09-27T10:03:25Z" "xl3" done "T62" "1 check passed")
+(285 "2026-09-27T10:03:55Z" "xl3" claim "T63" "xl3")
+(286 "2026-09-27T10:17:11Z" "xl3" note "T63" "Fixed a real bug found in graph.rkt's overrides-edge logic (T59) while building this fixture: base-member lookup matched the bare name against ANY def in the base file, picking whichever same-named method came first in file order, rather than a direct member of the specific base class. A 3-level chain (LoudDog : Dog : Animal) exposed it - LoudDog.Speak was wired to override Animal.Speak instead of its real direct parent Dog.Speak. Fixed by requiring the matched base-member's own scope to equal the base class's qualname.")
+(287 "2026-09-27T10:17:12Z" "xl3" done "T63" "1 check passed")
