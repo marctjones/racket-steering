@@ -406,3 +406,6 @@
 (406 "2026-09-27T19:36:10Z" "claude" claim "T11" "claude")
 (407 "2026-09-27T19:36:10Z" "claude" note "T11" "racket/sandbox's eval-limits are asymmetric, checked directly rather than assumed: a CPU-time violation raises exn:fail:resource (resource='time) synchronously; a memory violation kills the custodian out-of-band and surfaces only as a plain exn:fail 'evaluator: terminated (out-of-memory)'. Also: make-module-evaluator treats a bare string as literal source text, not a file path - must convert with string->path or it reads the path itself as (invalid) source. Both found by probing real behavior before writing classify(), not from docs. Worker runs in the installed racket via subprocess (api.rkt/doc.rkt's pattern), never inside this raco-exe binary, so it needs no OS-isolation escape hatch beyond subprocess-kill for v1.")
 (408 "2026-09-27T19:36:14Z" "claude" done "T11" "1 check passed")
+(409 "2026-09-27T19:58:32Z" "claude" add "T79" "C2-doc: cheap proxy read on whether steer doc helps the unbound-identifier failure class")
+(410 "2026-09-27T19:58:39Z" "claude" claim "T79" "claude")
+(411 "2026-09-27T19:58:39Z" "claude" done "T79" "1 check passed")

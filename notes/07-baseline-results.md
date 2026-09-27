@@ -154,6 +154,59 @@ real ~10-15pp C2-lite effect from zero at this pass-rate range with reasonable p
   exactly what A1 cannot touch — consistent with note 04's prioritization of A2 (binding/arity
   checker) as the next tool to build.
 
+## Follow-up (2026-09-27): C2-doc, testing B1 against the failure class it was actually built for
+
+Q4 above named unbound-identifier failures as the largest remaining class A1 cannot touch. Rather than
+wait for A2 (a real build), this asks a cheaper question first: does B1 (`steer doc exists`, already
+built, T12) help on this class right now? Reused this run's own turn-1 artifacts (no new C0 generation
+needed) - of the 50 C0 failures, exactly 10 are Racket's own `NAME: unbound identifier` expand-time
+error, confirmed disjoint from the 28 syntax-eligible ones (0 overlap). New condition **C2-doc**: same
+retry shape as C1/C2-lite, but the turn-2 feedback is `steer doc exists NAME`'s own text output in
+place of the raw compiler error.
+
+### Head-to-head on the unbound-identifier subset (n=10)
+
+| condition | n | pass | 95% CI |
+|---|---|---|---|
+| C1 (raw error retry) | 10 | 20% | 6–51% |
+| C2-doc (`steer doc exists` retry) | 10 | **50%** | 24–76% |
+
+**The first positive signal for any of steer's own tools in this evaluation effort** - and a clean one:
+inspected all 10 individually, not just the aggregate. C2-doc is monotonically at least as good as C1 on
+every single task (never regresses one C1 got right) and adds 3 net wins C1 missed, each with a clear,
+inspectable mechanism, not a guess:
+- `exercism-gigasecond`: model wrote `date->seconds` with no `require`. C1's raw error is just "unbound
+  identifier"; `steer doc exists` answers "yes: date->seconds · procedure · (require racket/date)" -
+  telling the model the exact fix, not just that something is wrong.
+- `exercism-variable-length-quantity-repair-name`: `list-reverse` → doc search's synonym table
+  suggests `reverse`, the real fix.
+- `exercism-perfect-numbers-repair-name`: `1+` → suggests `add1`, the real fix.
+
+The 5 shared losses (`diamond`, `collatz-conjecture`, `resistor-color-trio`, `all-your-base`,
+`pascals-triangle`) are cases doc search cannot help by construction: `while` (Racket has no such form;
+"closest names: file, write" is edit-distance noise, not a fix) and at least one genuinely-undefined
+LOCAL variable (`new-stems` - not a stdlib name at all, so there is nothing for a global doc index to
+find). This is doc search's real ceiling on this failure class, not a bug in it.
+
+**n=10 is small - say plainly what this does and doesn't show.** The 95% CIs (6–51% vs 24–76%) overlap
+by most of their width; this is a real, mechanistically-explained, directionally positive signal, not a
+settled result. It is the strongest evidence-first case yet for *building* something (a `c2-doc`-style
+condition costs ~10 model calls and 3 minutes of local MLX time to test, dramatically cheaper than
+building A2 first and finding out later) and for what A2 itself should prioritize: A2's own "nearest-
+export suggestions" is doc.rkt's synonym-table idea, generalized past what a global doc index alone can
+reach (a genuinely local, undefined variable) - exactly the gap this run's 5 losses expose.
+
+### Reproducing (on top of the artifacts the section below produces)
+
+```
+racket scripts/retry-eval.rkt eligibility run1/results1.jsonl run1/elig.jsonl        # now also tags unbound-name
+racket scripts/retry-eval.rkt turn2-prompts c2doc run1/prompts.jsonl run1/results1.jsonl run1/elig.jsonl run1/c2doc-turn2-prompts.jsonl
+.venv-mlx/bin/python scripts/mlx_generate.py run1/c2doc-turn2-prompts.jsonl run1/c2doc-completions2.jsonl
+racket scripts/eval-local.rkt score run1/c2doc-turn2-prompts.jsonl run1/c2doc-completions2.jsonl run1/c2doc-results2.jsonl
+racket scripts/retry-eval.rkt combine run1/results1.jsonl run1/c2doc-results2.jsonl run1/c2doc-combined.jsonl
+racket scripts/retry-eval.rkt unbound-subset-report run1/elig.jsonl run1/c1-combined.jsonl run1/c2doc-combined.jsonl
+```
+
 ## Reproducing
 
 ```

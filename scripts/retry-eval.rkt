@@ -32,6 +32,14 @@
   (with-handlers ([exn:fail? (λ (e) '())])
     (hash-ref (string->jsexpr out) 'findings '())))
 
+;; A second, disjoint eligibility criterion for C2-doc: a C0 failure whose `detail` is Racket's own
+;; unbound-identifier expand-time error, "FILE:LINE:COL: NAME: unbound identifier" - the one failure
+;; class notes/07 found A1/steer-syntax structurally cannot see at all (confirmed disjoint from the
+;; syntax-eligible set on this run's own data: 0 overlap between the two subsets).
+(define (unbound-name detail)
+  (define m (regexp-match #px"^[^:]+:[0-9]+:[0-9]+: (.+?): unbound identifier" detail))
+  (and m (cadr m)))
+
 (define (cmd-eligibility args)
   (define results1 (read-jsonl (car args)))
   (define rows
@@ -39,10 +47,12 @@
       (define findings (steer-syntax-findings (hash-ref r 'code "")))
       (define errs (filter (λ (f) (equal? (hash-ref f 'severity) "error")) findings))
       (hasheq 'id (hash-ref r 'id) 'eligible (pair? errs)
-              'finding-kinds (map (λ (f) (hash-ref f 'kind)) errs))))
+              'finding-kinds (map (λ (f) (hash-ref f 'kind)) errs)
+              'unbound-name (or (unbound-name (hash-ref r 'detail "")) 'null))))
   (write-jsonl (cadr args) rows)
-  (printf "eligibility: ~a/~a failing turn-1 tasks have a steer-syntax-detectable error\n"
-          (length (filter (λ (r) (hash-ref r 'eligible)) rows)) (length rows)))
+  (printf "eligibility: ~a/~a failing turn-1 tasks have a steer-syntax-detectable error; ~a/~a are an unbound-identifier error\n"
+          (length (filter (λ (r) (hash-ref r 'eligible)) rows)) (length rows)
+          (length (filter (λ (r) (not (eq? (hash-ref r 'unbound-name) 'null))) rows)) (length rows)))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; turn2-prompts
@@ -64,17 +74,24 @@
                  "## " header "\n" feedback
                  "\n\nFix your solution. Reply with the complete corrected file in a single ```racket code block."))
 
+;; `steer doc exists NAME`'s own text output, verbatim - the same one-shot check.rkt B1 already
+;; exposes; not a special-purpose format invented for this eval.
+(define (steer-doc-feedback name)
+  (with-output-to-string (λ () (system* steer-bin "doc" "exists" name))))
+
 (define (cmd-turn2-prompts args)
   (define condition (car args))
   (define prompts1 (for/hash ([p (read-jsonl (cadr args))]) (values (hash-ref p 'id) p)))
   (define results1 (read-jsonl (caddr args)))
-  (define elig (for/hash ([e (read-jsonl (cadddr args))]) (values (hash-ref e 'id) (hash-ref e 'eligible))))
+  (define elig (for/hash ([e (read-jsonl (cadddr args))]) (values (hash-ref e 'id) e)))
+  (define (unbound-name-of id) (let ([n (hash-ref (hash-ref elig id (hasheq)) 'unbound-name 'null)]) (and (not (eq? n 'null)) n)))
   (define out-path (list-ref args 4))
   (define rows
     (for/list ([r results1] #:unless (hash-ref r 'pass)
                #:when (case condition
                         [("c1") #t]
-                        [("c2lite") (hash-ref elig (hash-ref r 'id) #f)]
+                        [("c2lite") (hash-ref (hash-ref elig (hash-ref r 'id) (hasheq)) 'eligible #f)]
+                        [("c2doc") (and (unbound-name-of (hash-ref r 'id)) #t)]
                         [else (error 'turn2-prompts "unknown condition ~a" condition)]))
       (define id (hash-ref r 'id))
       (define p (hash-ref prompts1 id))
@@ -88,7 +105,11 @@
                        (hash-ref r 'detail)))]
           [("c2lite")
            (define-values (fix-text _fixed) (steer-fix-feedback code))
-           (values "`steer syntax --fix` report (a located structural error plus a verified repair)" fix-text)]))
+           (values "`steer syntax --fix` report (a located structural error plus a verified repair)" fix-text)]
+          [("c2doc")
+           (define name (unbound-name-of id))
+           (values (format "Compiler error, plus `steer doc exists ~a`" name)
+                   (format "~a: unbound identifier\n\n~a" name (steer-doc-feedback name)))]))
       (hasheq 'id id 'kind (hash-ref p 'kind) 'mutation (hash-ref p 'mutation #f)
               'prompt (retry-prompt (hash-ref p 'prompt) code header feedback))))
   (write-jsonl out-path rows)
@@ -139,6 +160,23 @@
     (define-values (lo hi) (wilson k n))
     (printf "| ~a | ~a | ~a | ~a–~a |\n" cond-name n (if (zero? n) "–" (pct (/ k n))) (pct lo) (pct hi))))
 
+;; unbound-subset-report: head-to-head of C1 vs C2-doc on the unbound-identifier subset only - the
+;; disjoint counterpart to subset-report's syntax-error subset.
+
+(define (cmd-unbound-subset-report args)
+  (define elig-ids (for/list ([e (read-jsonl (car args))] #:unless (eq? (hash-ref e 'unbound-name) 'null)) (hash-ref e 'id)))
+  (define c1 (for/hash ([r (read-jsonl (cadr args))]) (values (hash-ref r 'id) r)))
+  (define c2 (for/hash ([r (read-jsonl (caddr args))]) (values (hash-ref r 'id) r)))
+  (printf "\nunbound-identifier subset: ~a tasks whose turn-1 (C0) failure is Racket's own unbound-identifier error\n" (length elig-ids))
+  (printf "| condition | n | pass | 95% CI |\n|---|---|---|---|\n")
+  (for ([cond-name (list "C1 (raw error retry)" "C2-doc (steer doc exists retry)")]
+        [tbl (list c1 c2)])
+    (define sub (for/list ([i elig-ids] #:when (hash-ref tbl i #f)) (hash-ref tbl i)))
+    (define n (length sub))
+    (define k (length (filter (λ (r) (hash-ref r 'pass)) sub)))
+    (define-values (lo hi) (wilson k n))
+    (printf "| ~a | ~a | ~a | ~a–~a |\n" cond-name n (if (zero? n) "–" (pct (/ k n))) (pct lo) (pct hi))))
+
 (module+ main
   (define args (vector->list (current-command-line-arguments)))
   (case (and (pair? args) (car args))
@@ -146,4 +184,5 @@
     [("turn2-prompts") (cmd-turn2-prompts (cdr args))]
     [("combine") (cmd-combine (cdr args))]
     [("subset-report") (cmd-subset-report (cdr args))]
-    [else (eprintf "usage: racket scripts/retry-eval.rkt eligibility|turn2-prompts|combine|subset-report ...\n") (exit 2)]))
+    [("unbound-subset-report") (cmd-unbound-subset-report (cdr args))]
+    [else (eprintf "usage: racket scripts/retry-eval.rkt eligibility|turn2-prompts|combine|subset-report|unbound-subset-report ...\n") (exit 2)]))
