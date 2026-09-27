@@ -13,7 +13,8 @@
 ;; implicit-names (implicit_name) - the goal T64 is named for: adding a language's entry heuristics
 ;; is adding its prelude table, not new engine code.
 (require racket/list racket/string racket/file racket/path
-         "common.rkt" "store.rkt" "graph.rkt" "lang.rkt" "datalog.rkt")
+         "common.rkt" "store.rkt" "graph.rkt" "lang.rkt" "datalog.rkt" "graph-cache.rkt"
+         (only-in "python.rkt" py-extract-batch))
 (provide project-files-multi build-project-graph base-facts helper-facts
          entry-facts entries-from-graph entry-admitted-by entry-id->display)
 
@@ -30,13 +31,42 @@
 
 ;; → (values graph file-facts-list). A file whose gate fails to extract it gets an empty file-facts
 ;; (never dropped, per file-facts' own contract), same as module-facts already does for Racket alone.
+;; T66: a per-file cache, keyed by the file's own raw-content sha1, one shared .rktd format for every
+;; language - a cache HIT costs a hash and a read, never a worker process or a scanner pass. Python's
+;; own extractor batches every cache MISS into one process call (py-extract-batch, T62), rather than
+;; one process per file - the one place this module knows a language's name, as a pure performance
+;; path: correctness and the cache format are identical either way, and every other language's cache
+;; misses still go through the plain per-file `gate-extract` the six-function contract already gives.
+(define (bytes->string/utf-8-safe bs) (bytes->string/utf-8 bs #\?))
+
 (define (build-project-graph root)
   (define files (project-files-multi root))
-  (define fs-list
-    (for/list ([f files])
+  (define bytes-of (for/hash ([f files]) (values f (with-handlers ([exn:fail? (λ (e) #"")]) (file->bytes (build-path root f))))))
+  (define (bytes-for f) (hash-ref bytes-of f #""))
+  (define lang-of (for/hash ([f files]) (values f (gate-name (gate-for-path f)))))
+  (define sha-of (for/hash ([f files]) (values f (content-sha1 (bytes-for f)))))
+  (define (cache-p f) (cache-path root (hash-ref lang-of f) (hash-ref sha-of f)))
+  (define cache-hits (for/hash ([f files]) (values f (cache-read (cache-p f)))))
+  (define cached (for/hash ([f files] #:when (hash-ref cache-hits f)) (values f (hash-ref cache-hits f))))
+  (define misses (filter (λ (f) (not (hash-ref cached f #f))) files))
+  (define python-misses (filter (λ (f) (eq? (hash-ref lang-of f) 'python)) misses))
+  (define other-misses (filter (λ (f) (not (eq? (hash-ref lang-of f) 'python))) misses))
+  (define python-extracted
+    (if (null? python-misses)
+        (hash)
+        (let ()
+          (record-extract-launch!)     ; ONE launch for the whole batch, however many files
+          (for/hash ([f python-misses] [ff (py-extract-batch (for/list ([f python-misses]) (cons f (bytes->string/utf-8-safe (bytes-for f)))))])
+            (values f ff)))))
+  (define other-extracted
+    (for/hash ([f other-misses])
       (define g (gate-for-path f))
-      (with-handlers ([exn:fail? (λ (e) (file-facts f (gate-name g) '() '() '() #f ""))])
-        ((gate-extract g) (file->string (build-path root f)) f))))
+      (record-extract-launch!)
+      (values f (with-handlers ([exn:fail? (λ (e) (file-facts f (gate-name g) '() '() '() #f ""))])
+                  ((gate-extract g) (bytes->string/utf-8-safe (bytes-for f)) f)))))
+  (for ([f misses])
+    (cache-write! (cache-p f) (hash-ref (if (eq? (hash-ref lang-of f) 'python) python-extracted other-extracted) f)))
+  (define fs-list (for/list ([f files]) (or (hash-ref cached f #f) (hash-ref python-extracted f #f) (hash-ref other-extracted f #f))))
   (define (dispatch-resolve-import lang spec importing-path root2 all-paths)
     (define g (gate-for-path importing-path))
     (define ri (and g (gate-resolve-import g)))

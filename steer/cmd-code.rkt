@@ -176,9 +176,14 @@
                   (for/list ([m mods])
                     (string-append m ":\n"
                                    (string-join (for/list ([e (hash-ref lock m '())])
-                                                  (format "  ~a ~a~a~a" (car e) (cadr e)
-                                                          (if (caddr e) (format " arity ~a" (arity-text (caddr e))) "")
-                                                          (if (list-ref e 4) (format " ~a" (list-ref e 4)) "")))
+                                                  ;; T54: a Python entry is (name 'python-def shape) - its own
+                                                  ;; signature text says everything; a Racket entry is the
+                                                  ;; original (name kind arity keywords contract).
+                                                  (if (eq? (cadr e) 'python-def)
+                                                      (format "  ~a" (caddr e))
+                                                      (format "  ~a ~a~a~a" (car e) (cadr e)
+                                                              (if (caddr e) (format " arity ~a" (arity-text (caddr e))) "")
+                                                              (if (list-ref e 4) (format " ~a" (list-ref e 4)) ""))))
                                                 "\n")))
                   "\n")
                  (hasheq 'modules mods))]

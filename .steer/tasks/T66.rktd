@@ -1,6 +1,6 @@
 ((id "T66")
  (title "Per-file graph cache keyed by content hash, excluded from git")
- (status open)
+ (status done)
  (priority 2)
  (goal
   ".steer/cache/graph/<lang>/<sha1>.rktd per file, one cache format shared by every language; a second run on an unchanged tree launches no worker and no scanner for any language (asserted by counting launches and wall time); steer init ignores .steer/cache/, steer doctor warns when it is tracked; cold <= 5s and warm <= 0.5s on a 500-file synthetic project, recorded in the test output.")
@@ -11,5 +11,17 @@
  (tags ("graph"))
  (claimed-by #f)
  (created "2026-09-27T08:50:21Z")
- (updated "2026-09-27T08:50:21Z")
- (log ()))
+ (updated "2026-09-27T10:53:16Z")
+ (log
+  (((agent "xl3")
+    (kind note)
+    (seq 294)
+    (text
+     "Cache is keyed by the file's own raw-content sha1 (not the whitespace-insensitive per-def hash), so a formatting-only edit still invalidates and re-extracts - a deliberate choice: the cache is about avoiding redundant work on a truly unchanged file, not about semantic equivalence. build-project-graph batches ALL Python cache-misses into ONE py-extract-batch call (reusing T62's batching) rather than one process per file, which is the one place this module is aware of a language's name - a pure performance path (correctness and the cache format are identical either way); every other language's misses go through the plain per-file gate-extract the six-function contract already gives.")
+    (ts "2026-09-27T10:53:15Z"))
+   ((agent "xl3")
+    (checks (((cmd "raco test tests/graph-cache-test.rkt") (secs 0.9))))
+    (kind done)
+    (seq 295)
+    (ts "2026-09-27T10:53:16Z")
+    (verified #t)))))

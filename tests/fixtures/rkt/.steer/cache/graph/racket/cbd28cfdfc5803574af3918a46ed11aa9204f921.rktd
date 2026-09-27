@@ -1,0 +1,1 @@
+#s(file-facts "helper.rkt" racket (#s(def function "double" "double" #f 5 5 "(double ...)" "29d176ff00d6" () () #f #t) #s(def function "triple" "triple" #f 6 6 "(triple ...)" "517230e1ff0a" () () #f #t)) (#s(ref call "*" #f "double" 2 5) #s(ref call "*" #f "triple" 2 6)) () #f "6985026e99f7")
