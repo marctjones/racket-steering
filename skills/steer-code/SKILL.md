@@ -1,6 +1,6 @@
 ---
 name: steer-code
-description: Deterministic code checks via the `steer` CLI, for Racket, Python and C# - locate unbalanced brackets/parens with the likely fix, resolve a symbol reference exactly (file.py#Class.method, file.cs#Class.Method), and (Racket only) find duplicated code and detect public-API breaks against a committed lock file. Use when writing or editing .rkt/.py/.cs files, when a syntax error appears, before writing a new helper function, and before finishing a change to a module's provided API.
+description: Deterministic code checks via the `steer` CLI, for Racket, Python and C# - locate unbalanced brackets/parens with the likely fix, resolve a symbol reference exactly (file.py#Class.method, file.cs#Class.Method), find dead code and public-API breaks over a shared call graph (all three languages), and (Racket only) find duplicated code. Use when writing or editing .rkt/.py/.cs files, when a syntax error appears, before writing a new helper function, and before finishing a change to a module's provided API.
 allowed-tools: Bash(steer *)
 ---
 
@@ -59,24 +59,50 @@ A group lists every copy with its enclosing definition. Extract a shared functio
 must change together; code that merely looks alike can stay. Python/C# clone detection is not built
 yet (catalog F5b); for those languages, search by hand before writing a new helper.
 
-## Architecture rules (Racket only)
+## The code graph: calls, entries, dead code (Racket, Python, C#)
 
-If the repo has `.steer/rules.dl`, `steer rules check` verifies the layering rules over the Racket require
-graph (for example "ui must not reach db") and prints the require *path* behind each violation, with the
-line of the offending `require`. Fix the last link of the chain, not the first. `steer rules init` writes
-an example; rules are positive Datalog plus `%layer NAME GLOB` lines (`steer help rules`).
+`rules`/`api --entries` share one graph across all three languages, built from calls actually written
+as calls (`f(...)`, `obj.f(...)`, `new T(...)`) — it never sees a plain value or attribute reference.
+Every edge is tagged by how sure it is:
 
-## Public API drift (Racket only)
+| language | same-file calls | cross-file calls | invisible to this graph |
+|---|---|---|---|
+| Racket | exact | declared (a resolved `require`: relative path, or a project-rooted collection spec) | a third-party struct-like macro's generated bindings (`define-object-type` and similar — not the built-in `struct`, which IS tracked) |
+| Python | exact | declared (a resolved `import`), else name-match | a function/class used only as a VALUE: assigned to a variable then called through it, `functools.singledispatch` dispatch tables, a closure returned and invoked later, a bare attribute/property read |
+| C# | exact | name-match only (no dotnet SDK, no namespace index: `using` almost never resolves to one file) | an attribute class used only via `[AttrName]` syntax; a bare field/property read |
 
-1. Once, and after an intended API change: `steer api snapshot src/main.rkt src/lib.rkt`, then commit
-   `.steer/api.lock`.
-2. Before finishing a change: `steer api diff`. Removed exports, narrowed arity, new required
-   keywords and macro/value changes are errors (breaking); changed contracts are warnings to
-   review; additions are compatible. Exit code 1 means something broke.
+**A `dead(S)` finding means "no call was found," never "this is unused"** — check the invisible column
+above before deleting anything `steer rules dead` flags; on real projects measured this way, most dead
+findings turned out to be exactly one of those patterns, not genuinely dead code (notes/16).
 
-`api` loads the modules with the installed `racket` in a separate process (time-limited), so module
-top-level code runs, as it would under `raco test`. There is no Python or C# equivalent yet
-(catalog F3/XL2): don't assume `steer api` covers those languages.
+### Architecture rules
+
+If the repo has `.steer/rules.dl`, `steer rules check` verifies layering rules over this graph (for
+example "ui must not reach db") and prints the require/call *path* behind each violation, with the
+line of the offending require. Fix the last link of the chain, not the first. `steer rules init` writes
+an example; rules are positive Datalog plus `%layer NAME GLOB` lines (`steer help rules`). A rule can
+also query `dead(S)`/`reachable(S)` directly, promoting a dead symbol in a given layer to a violation.
+
+### Entry points and dead code
+
+`steer rules entries` lists every entry point this graph found and which rule admitted it (an explicit
+`;; steer: entry` / `# steer: entry` / `// steer: entry` marker, a language-specific heuristic like a
+public method on a public class, or your own `entry("path#qualname").` fact/rule in `.steer/rules.dl`).
+`steer rules dead` lists symbols nothing reaches from any entry point; `steer rules reach SYM` shows
+which entries reach a symbol (with the shortest path each) and what it reaches in turn.
+
+### Public API drift
+
+`steer api snapshot --entries` records a static shape (real signature text) for every entry point
+across every language, from the same graph; `steer api diff --entries` classifies changes the same
+way for all three — removed/added parameters, an entry removed or demoted, and an arity mismatch at
+an actual in-project call site. C# cannot yet tell an added *required* parameter from an added
+*optional* one (no default-value tracking), so an added C# parameter is always classified breaking.
+
+The older `steer api snapshot MODULE...` (no `--entries`) is a separate, per-module route: Racket
+dynamically loads and instantiates the module with the installed `racket` (module top-level code
+runs, as it would under `raco test`); Python reads `__all__`/leading-underscore via the same static
+ast the graph uses. There is no non-`--entries` C# route.
 
 ## Test failures, readable
 
