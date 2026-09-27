@@ -1,0 +1,17 @@
+((id "T60")
+ (title "Racket extractor: implements the generic extract/resolve-import contract")
+ (status open)
+ (priority 1)
+ (goal
+  "Table-driven s-expression extractor over srcread forms (define heads, require/provide heads, module heads) emitting file-facts per the graph-ir contract; struct forms synthesise generated names; local binders (dup.rkt collect-binders) subtracted from calls; `;; steer: entry` comment markers scanned; extract-requires' spec handling moves here unchanged. Nothing here is graph-generic logic - only the six-function contract from lang-record.")
+ (after ("T59"))
+ (checks ("raco test tests/rkt-graph-test.rkt"))
+ (anchors
+  (((hash "92d30f7f558e") (ref "steer/rules.rkt#extract-requires"))
+   ((hash "8dd312455558") (ref "steer/dup.rkt#collect-binders"))))
+ (touches ())
+ (tags ("graph"))
+ (claimed-by #f)
+ (created "2026-09-27T08:50:21Z")
+ (updated "2026-09-27T08:50:21Z")
+ (log ()))

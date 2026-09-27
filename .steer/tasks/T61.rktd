@@ -1,0 +1,17 @@
+((id "T61")
+ (title "steer rules facts come from the graph (module-facts as a projection)")
+ (status open)
+ (priority 1)
+ (goal
+  "module-facts builds the graph and projects module/requires/uses/layer; only predicates referenced by the loaded rules and preludes are materialised; finding text, lines and this repo's own architecture check are byte-identical to today, and a wall-time bound is asserted; steer rules is no longer Racket-only once Python/C# extractors land, since it now queries the one shared graph rather than a Racket-only fact extractor.")
+ (after ("T60"))
+ (checks ("raco test tests/rules-test.rkt tests/rules-projection-test.rkt"))
+ (anchors
+  (((hash "f3be83db7999") (ref "steer/rules.rkt#module-facts"))
+   ((hash "48d6efde5b20") (ref "steer/rules.rkt#check-rules"))))
+ (touches ())
+ (tags ("graph"))
+ (claimed-by #f)
+ (created "2026-09-27T08:50:21Z")
+ (updated "2026-09-27T08:50:21Z")
+ (log ()))
