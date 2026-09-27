@@ -12,6 +12,7 @@
 %layer core     steer/api.rkt
 %layer core     steer/failures.rkt
 %layer core     steer/skills.rkt
+%layer core     steer/spec.rkt
 %layer command  steer/cmd-*.rkt
 %layer command  steer/doc.rkt
 %layer command  steer/github.rkt

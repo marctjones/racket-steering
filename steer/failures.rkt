@@ -32,6 +32,10 @@
     [(member k '("unknown-keyword" "unknown-label" "duplicate-label" "bad-label" "bad-value" "missing-title"
                  "not-a-task" "expected-keyword" "missing-value" "self-dependency"))
      'plan-error]
+    [(member k '("weak-modal" "no-observable" "verb-form" "bad-start" "missing-comma" "missing-then" "missing-the" "missing-period"
+                 "missing-shall" "empty-criterion" "no-criteria" "open-ended" "and-or" "subjective" "hedge" "vague-quantity"
+                 "bare-quantity" "passive"))
+     'criteria-error]
     [(member k '("usage" "incomplete-checkpoint" "no-check" "blocked" "claimed" "bad-id" "unknown-task" "not-active"
                  "no-store" "locked" "bad-ref" "no-repo"))
      'tool-misuse]
@@ -46,6 +50,7 @@
     [(check-failed) "test output parsing so failures are readable (T47), and better checks"]
     [(tool-misuse) "usage hints and skill text: agents are misusing steer itself"]
     [(plan-error) "import error messages and the plan format docs"]
+    [(criteria-error) "the criteria templates: skill text, `steer help spec`, the observable-verb and lint rule lists"]
     [(drift) "anchors and doctor: plans going stale, store integrity"]
     [(api-break) "API lock workflow (F3)"]
     [(tool-failure) "steer bugs and environment problems: fix first"]
