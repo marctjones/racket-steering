@@ -166,3 +166,7 @@
 (166 "2026-09-27T08:51:18Z" "claude" edit "T54" "--goal")
 (167 "2026-09-27T08:51:18Z" "claude" note "T54" "Reworded (no behavior change) so its output is explicitly framed as feeding shape-lock's (T67) generic entry-shape field rather than a Python-only lock format - part of the XL3 code-graph design's re-scoping of T54-T57.")
 (168 "2026-09-27T08:51:35Z" "claude" add "T70" "XL3 · Code graph, entry points and reachability")
+(169 "2026-09-27T08:52:56Z" "claude" github "T57" "update milestone #5")
+(170 "2026-09-27T08:52:56Z" "claude" github "T56" "update issue #25")
+(171 "2026-09-27T08:52:57Z" "claude" github "T54" "update issue #23")
+(172 "2026-09-27T08:52:58Z" "claude" github "T55" "update issue #24")

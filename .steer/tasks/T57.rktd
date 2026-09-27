@@ -10,9 +10,9 @@
  (touches ())
  (tags ("cross-language" "milestone"))
  (claimed-by #f)
- (github ((digest "b42824ce7039") (kind milestone) (number 5)))
+ (github ((digest "e3ea0e5180e4") (kind milestone) (number 5)))
  (created "2026-09-26T08:04:49Z")
- (updated "2026-09-27T08:50:55Z")
+ (updated "2026-09-27T08:52:56Z")
  (log
   (((agent "claude")
     (kind note)

@@ -13,9 +13,9 @@
  (touches ())
  (tags ("cross-language"))
  (claimed-by #f)
- (github ((digest "626595bd66c1") (kind issue) (number 23)))
+ (github ((digest "2f9405547e89") (kind issue) (number 23)))
  (created "2026-09-26T08:04:49Z")
- (updated "2026-09-27T08:51:18Z")
+ (updated "2026-09-27T08:52:57Z")
  (log
   (((agent "claude")
     (kind note)

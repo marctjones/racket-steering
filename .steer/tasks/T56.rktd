@@ -10,9 +10,9 @@
  (touches ())
  (tags ("cross-language"))
  (claimed-by #f)
- (github ((digest "582b933fe1f5") (kind issue) (number 25)))
+ (github ((digest "15e696d6b7f8") (kind issue) (number 25)))
  (created "2026-09-26T08:04:49Z")
- (updated "2026-09-27T08:50:43Z")
+ (updated "2026-09-27T08:52:56Z")
  (log
   (((agent "claude")
     (kind note)
