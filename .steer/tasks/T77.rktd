@@ -1,4 +1,4 @@
-((id "T71")
+((id "T77")
  (title "T70 follow-up: base-class name-match is kind-blind (notes/16 SS9)")
  (status done)
  (priority 2)
@@ -11,7 +11,7 @@
  (tags ("graph"))
  (claimed-by "claude")
  (created "2026-09-27T18:34:02Z")
- (updated "2026-09-27T18:34:24Z")
+ (updated "2026-09-27T18:41:52Z")
  (log
   (((agent "claude")
     (kind note)

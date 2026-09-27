@@ -312,3 +312,5 @@
 (312 "2026-09-27T18:34:18Z" "claude" note "T71" "Two independent mechanisms, not one: (A) kind-blind base-class name-match, fixed here (graph.rkt bases loop, filtered to class/struct/interface/enum) - 97 bogus inherits(name-match) edges in GuardClauses, all onto one property, 0 in rebellion/tomli/aiofiles. (B) module-scoped decorates/calls edges bypass reach.rkt's constructor-only defines restriction - real, measured (8 false-negatives in GuardClauses), left open: needs a cross-extractor decorator-scoping change, not a filter.")
 (313 "2026-09-27T18:34:24Z" "claude" done "T71" "2 checks passed")
 (314 "2026-09-27T18:34:37Z" "claude" add "T72" "Module-scoped decorates/calls edges bypass reach.rkt's constructor-only defines restriction (notes/16 SS9, mechanism B)")
+(315 "2026-09-27T18:41:52Z" "claude" renumber "T77" "was T71 (collided with origin/main)")
+(316 "2026-09-27T18:41:52Z" "claude" renumber "T78" "was T72 (collided with origin/main)")
