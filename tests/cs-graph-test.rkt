@@ -36,8 +36,20 @@
         (list "Shapes.cs#Dog.Speak" "Shapes.cs#Animal.Speak" 'overrides 'declared #f)
         (list "Shapes.cs#LoudDog.Speak" "Shapes.cs#Dog.Speak" 'overrides 'declared #f)
         (list "Shapes.cs#Dog.Speak" "Helper.cs#Helper.Double" 'calls 'name-match 1)
-        (list "Shapes.cs#Program.UnusedHelper" "Helper.cs#Helper.Triple" 'calls 'name-match 1)))
+        (list "Shapes.cs#Program.UnusedHelper" "Helper.cs#Helper.Triple" 'calls 'name-match 1)
+        ;; T63 follow-up (notes/16 SS3): [Loud] on Bark resolves to the project's own LoudAttribute
+        ;; even though the source never writes the "Attribute" suffix - the extractor's dual-emission
+        ;; (bare name AND suffixed name; whichever is a real project symbol wins) is what makes this
+        ;; exact, with no linker change. Scope is Dog (Bark's ENCLOSING type), matching python.rkt's
+        ;; own decorator-ref convention (steer/python.rkt's self._decorator_refs).
+        (list "Shapes.cs#Dog" "Shapes.cs#LoudAttribute" 'decorates 'exact #f)))
 (for ([e must-find-edges]) (check-true (apply has-edge? e) (format "missing edge: ~a" e)))
+
+;; the bare-form ref ("Loud") must NOT also resolve to something real - only the suffixed form
+;; ("LoudAttribute") should, so there is exactly one RESOLVED decorates edge out of Dog, not two
+(check-equal? (length (filter (λ (e) (and (equal? (gedge-from e) "Shapes.cs#Dog") (eq? (gedge-kind e) 'decorates) (not (gedge-external? e))))
+                               (graph-edges g)))
+              1 "exactly one resolved decorates edge out of Dog (the suffixed form; the bare form is external)")
 
 ;; ---------------------------------------------------------------------------------------------
 ;; 2. known-invisible: a member's own declaration head (return type + name + parameter list) must
@@ -75,6 +87,18 @@
   (check-true (hash-ref reachable id #f) (format "~a must be reachable from the entry" id)))
 (for ([id '("Shapes.cs#Program.UnusedHelper" "Helper.cs#Helper.Triple" "Shapes.cs#LoudDog")])
   (check-false (hash-ref reachable id #f) (format "~a is NOT reached from the one entry (a real dead-code candidate for T65)" id)))
+
+;; T63 follow-up: LoudAttribute IS reached (Dog is reachable via `new Dog()`, and Dog now carries a
+;; resolved 'decorates edge to it from Bark's attribute) - this is the actual fix for notes/16's 211-
+;; of-212 false positive: an attribute class is no longer structurally unreachable just because
+;; nothing ever calls a method named after it. QuietAttribute decorates UnusedHelper, whose scope is
+;; Program (not Dog) - Program itself is never reached by this hand-rolled walk (nothing here ever
+;; does `new Program()`), so QuietAttribute correctly stays unreached: the fix does not over-connect
+;; everything, only what a real decorates edge, from an already-reachable scope, actually reaches.
+(check-true (hash-ref reachable "Shapes.cs#LoudAttribute" #f)
+            "LoudAttribute is reachable: Dog (its decorator's enclosing type) is reachable, and now carries the edge")
+(check-false (hash-ref reachable "Shapes.cs#QuietAttribute" #f)
+             "QuietAttribute decorates UnusedHelper (scope Program), and Program itself is never reached here")
 
 ;; ---------------------------------------------------------------------------------------------
 ;; 5. hash-identity: the graph's def-hash for a symbol equals cs-find-anchor's hash for that symbol -

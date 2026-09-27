@@ -8,6 +8,13 @@ namespace App
     // a constructor call, an attribute, and a helper reachable from nothing (so a later reachability
     // pass has something real to call dead).
 
+    // T63 follow-up (notes/16 SS3): two project-defined attribute classes, used the way real C# code
+    // almost always writes them - the short form, without the class's own "Attribute" suffix - so the
+    // extractor's dual-emission (bare name + suffixed name) is exercised for real, not just on a BCL
+    // attribute like [Serializable] (which never resolves to a project symbol either way).
+    public class LoudAttribute : Attribute { }
+    public class QuietAttribute : Attribute { }
+
     [Serializable]
     public abstract class Animal
     {
@@ -21,6 +28,7 @@ namespace App
             return this.Bark() + Helper.Double(1).ToString();
         }
 
+        [Loud]
         public string Bark()
         {
             return "woof";
@@ -44,6 +52,7 @@ namespace App
             Console.WriteLine(d.Speak());
         }
 
+        [Quiet]
         public static int UnusedHelper(int x)
         {
             return Helper.Triple(x);

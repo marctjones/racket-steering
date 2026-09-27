@@ -21,12 +21,19 @@ per language - no language gets its own measurement methodology, per the task's 
 | rebellion (Racket) | 29.3% | 21.9% | 48.8% | 45.5%¹ | **51.2%** |
 | tomli (Python) | 38.0% | 1.9% | 60.1% | 52.4%¹ | **39.9%** |
 | aiofiles (Python) | 16.1% | 12.7% | 71.2% | 64.0%¹ | **28.8%** |
-| GuardClauses (C#) | 13.8% | 0% | 86.2% | 24.5%¹ | **13.8%** |
+| GuardClauses (C#) | 13.8% | 0% | 86.2% | 24.5%¹ | **13.8%**³ |
 
 ¹ `external` overlaps with `name-match` (an edge can be both "resolved only by shared name" and "the target turned out
 to be unresolvable" is not how the counts work - `external` counts edges where nothing in the project matched at
 all, a subset that is *also* counted under whichever confidence tag it got, which for an unresolved edge is always
 `name-match` with `to=#f`; so `external <= name-match` always, and the two are not mutually exclusive columns).
+
+³ Superseded by §7 (the T63 attribute-refs follow-up, measured separately below): re-measuring after that fix gives
+exact 10.4%, declared 0%, name-match 89.6%, external 45.2%, resolution ratio **10.4%** - LOWER, not higher, because
+the fix adds thousands of new `decorates` refs project-wide (test-method `[Fact]`/`[Theory]` attributes are by far
+the largest source), and most of those correctly resolve to nothing in-project (xUnit's own attribute classes,
+not GuardClauses'). More refs, correctly classified, is not the same as better precision on the refs that matter -
+see §7 for why this is the right outcome, not a regression.
 
 **Racket has by far the best resolution ratio, and C# by far the worst - both make sense structurally, not just as
 measurement noise:**
@@ -107,11 +114,14 @@ exercise "what if literally nothing is ever exported."
 | rebellion | 900 / 1881 | 47.8% |
 | tomli | 6 / 80 | 7.5% |
 | aiofiles | 31 / 167 | 18.6% |
-| GuardClauses | 212 / 841 | 25.2% |
+| GuardClauses | 212 / 841 | 25.2% |⁴
 
 (Before the fixes in §2: rebellion 1017/1881 = 54.1%, GuardClauses 838/841 = 99.6%, tomli/aiofiles unaffected since
 Python's public_api was already mostly working - their counts moved only slightly, from adding the implicit-name
 dunders in §2's Python fix, covered in §4.)
+
+⁴ Superseded by §7: after the attribute-refs follow-up, GuardClauses' dead count is 209/841 = 24.9%, a small real
+drop (3 symbols), not the large one the §4 diagnosis below implied it should be - see §7 for why.
 
 ## 4. Hand-checked dead-finding samples, classified true/false positive **[tested]**
 
@@ -168,6 +178,11 @@ context-manager protocol, not the async one, and not the general object protocol
 
 ### C# (GuardClauses): 20 sampled (path-sorted), plus a full read of the remaining 192 by grep
 
+**Superseded in part by §7**: the `decorates`-ref gap named just below WAS fixed, but only reduced this project's
+dead count by 3 (212→209) - most of the 211 attribute-class false positives named here turned out to be on
+PARAMETERS, not on the type/method declaration itself, a third tier §7's fix does not cover. Read on for the
+original diagnosis, then §7 for what actually happened when it was acted on.
+
 **0 true positives in the 20-sample; 1 true positive found in the full 212 (0.5% overall).** 211 of 212 are
 attribute classes (`CallerArgumentExpressionAttribute`, and 17 in `ThirdParty/JetBrains.Annotations.cs`:
 `NotNullAttribute`, `CanBeNullAttribute`, `PublicAPIAttribute`, ...) used ONLY via C#'s `[AttributeName]` syntax on
@@ -188,8 +203,9 @@ Python-specific one.
 - **Dead-code precision on this sample is poor for both Python and C#** (0% true positives sampled for Python; 0.5%
   for C#), and **also poor for Racket** on the one file sampled (0%), all for the SAME reason at bottom: this graph
   only ever emits a `ref` for something written as a call (`f(...)`, `obj.f(...)`, `new T(...)`), never for a plain
-  value/attribute reference, a decorator/attribute application (Python is the one exception - it already emits
-  `decorates` refs), or a name captured by a language runtime hook this project's `implicit-names` table does not
+  value/attribute reference, a decorator/attribute application (Python and, since §7, C# on the type/member tier
+  are the exceptions here - both emit `decorates` refs; C# parameter-level attributes still do not, per §7), or a
+  name captured by a language runtime hook this project's `implicit-names` table does not
   yet list. **`steer rules dead`'s findings should be read as "no call to this was found," not "this is unused" -
   a human (or an agent) still has to look**, exactly as `notes/12`/`notes/16`'s own framing for this whole system
   says: an over-approximation, never a claim of precision no static analysis without a real compiler can back.
@@ -222,3 +238,69 @@ Python-specific one.
   permanent limitation of the current extractor, not something T67 rounds away.
 - T54 (Python API lock) was implemented as part of this milestone even though it is tracked outside T58-T70,
   because T67 has a real, tracked dependency on it.
+
+## 7. Follow-up (post-milestone, 2026-09-27): C# attribute-usage `decorates` refs **[tested]**
+
+§4's diagnosis (211 of 212 GuardClauses false positives are attribute classes with no `decorates` edge) was acted
+on: `cs-extract.rkt` now emits a `decorates` ref for every `[AttrName]` usage on both a type declaration (already
+tracked as metadata via `cs-type-attrs`; now also an edge) and, new, a MEMBER declaration (`cs-member` gained an
+`attrs` field, threaded from `scan-members`'s existing `skip-prefix/attrs` - previously a separate, name-dropping
+`skip-prefix` was used for members specifically, discarding the very names `cs-type-attrs` was already collecting
+for types). Ref scope is the decorated symbol's ENCLOSING type, matching `steer/python.rkt`'s own decorator-ref
+convention (`self._decorator_refs` runs before the decorated def's own name is pushed onto the scope stack) - not
+the decorated symbol's own qualname.
+
+**A real resolution problem, found before it shipped, not by measurement:** `[AttrName]` almost always omits the
+class's own "Attribute" suffix (`[Obsolete]` for `class ObsoleteAttribute`), confirmed against GuardClauses' actual
+source before writing any code (`git clone` at the pinned commit, grepped directly) - every real usage checked
+omits it. Since which form is real can only be known once the WHOLE project's defs are visible, not from the one
+file being extracted, the extractor emits BOTH the name as written and, when it lacks the suffix, the suffixed
+form, as two separate refs. Whichever one is not a real project symbol resolves as an ordinary external ref (same
+as any other unmatched call) - this stays entirely inside `cs-extract.rkt`, no linker change, since the suffix
+convention is a C# lexical fact, not a general graph-resolution rule. Verified mechanically: a new fixture case
+(`tests/fixtures/csproj/Shapes.cs`'s `LoudAttribute`, used as `[Loud]`) asserts exactly one RESOLVED `decorates`
+edge out of the two emitted, and that the attribute class becomes reachable once its decorated member's enclosing
+type is (`tests/cs-graph-test.rkt`).
+
+**The measured real-world effect was much smaller than the diagnosis implied, and that gap is itself the finding.**
+Re-measuring GuardClauses at the same pinned commit (`f96b823`) after the fix:
+
+| | dead symbols | resolution ratio (exact/declared/name-match/external) |
+|---|---|---|
+| before (§1/§3) | 212 / 841 (25.2%) | 13.8% / 0% / 86.2% / 24.5% |
+| after | 209 / 841 (24.9%) | 10.4% / 0% / 89.6% / 45.2% |
+
+Only 3 fewer dead symbols, not the ~211 §4's diagnosis implied - confirmed real (`NotNullAttribute`, resolved via
+its own member-level usage `[NotNull] public string FormatParameterName { get; }`, no longer appears in the dead
+list at all). The resolution ratio DROPPED (13.8%→10.4%), not from a regression, but because the fix surfaced
+thousands of new refs project-wide - the dominant new source, by a wide margin, is xUnit's `[Fact]`/`[Theory]`
+attributes on test methods throughout `test/GuardClauses.UnitTests/`, which correctly resolve as external (xUnit's
+own attribute classes, not GuardClauses'). More refs, correctly classified as unresolvable, dilutes a ratio computed
+over all edges; it is not evidence the fix is wrong, and `external` (45.2%, up from 24.5%) grew for the same reason.
+
+**Why the fix barely moved GuardClauses specifically: most real attribute usage in this project is on PARAMETERS,
+not on the type or member declaration itself** - a THIRD tier, distinct from both §4's original diagnosis and this
+fix's scope, found only by re-measuring against the real fixed graph rather than assuming the diagnosis was
+complete. Confirmed directly against the source (same clone, same commit): `CallerArgumentExpressionAttribute` is
+used exclusively as `[CallerArgumentExpression("input")]` on a trailing method PARAMETER
+(`GuardAgainstZeroExtensions.cs` and every sibling `GuardAgainst*Extensions.cs` file, dozens of call sites), and
+most of the 17 JetBrains annotations (`[NotNull]`, `[ItemNotNull]`, `[CanBeNull]`, ...) are likewise applied to
+parameters inside a constructor's or method's own parameter list, not to the method as a whole. `scan-members`'s
+existing `skip-prefix/attrs` only ever runs at a member's OWN start, before its return type; it has no visibility
+into attributes written on individual parameters inside `(...)`, and `parse-params`/`param-type-text` (T50) work
+on raw token TEXT, not indices, so they cannot reuse `attr-names-in` (which needs the token vector and indices) as
+written. This is a real, previously-undiagnosed scope cut, not fixed in this pass, and is a plausible reason C#'s
+false-positive rate would stay high on other real .NET projects that lean on parameter-level attributes the same
+way (`[FromBody]`, `[Required]`, ASP.NET model-binding attributes are the same shape) - flagged via `spawn_task` as
+a follow-up rather than silently left as a gap in this note alone.
+
+**What this adds to §5's framing, plainly:** a fix that is mechanically correct and verified end-to-end on a
+purpose-built fixture (proven: the mechanism works, the suffix-guessing is necessary and sufficient for the case it
+targets) can still fail to move a real project's numbers much, because the original diagnosis from a 20-symbol
+hand-sample generalized past what that sample actually contained. **A false-positive rate is not one root cause
+just because the sample looked uniform** - GuardClauses' 211 "attribute class" false positives were actually two
+different causes (type/member-level attributes, now fixed; parameter-level attributes, not yet), and the sample
+size that found the number (211) was too small, and too concentrated in one codebase's own conventions, to tell
+them apart. The same caution note 12 and §4 already applied to false-positive RATES applies just as much to
+false-positive CAUSES: verify the fix against the real project it was diagnosed from before calling it fixed, not
+just against a fixture built to exercise the mechanism.

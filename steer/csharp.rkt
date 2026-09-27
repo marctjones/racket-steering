@@ -418,7 +418,7 @@
          scan-types (struct-out cs-type) scan-usings)
 
 (struct frame (kind name open-depth) #:transparent)   ; open-depth: brace depth while inside this frame
-(struct cs-member (qualname kind arity paramtypes start end) #:transparent)  ; start/end: token indices, inclusive
+(struct cs-member (qualname kind arity paramtypes attrs start end) #:transparent)  ; start/end: token indices, inclusive
 
 (define type-keywords '("class" "struct" "interface" "enum" "record"))
 ;; "this" is not here: an indexer's return type precedes it ("public int this[...]"), so `this` must
@@ -451,12 +451,11 @@
           [(punct? tv i ">") (if (= d 1) (add1 i) (loop (add1 i) (sub1 d)))]
           [else (loop (add1 i) d)])))
 
-;; Skip attribute lists (`[Attr] [Attr2(...)]`) and modifier keywords, starting at i. → new index.
-(define (skip-prefix tv i)
-  (let loop ([i i])
-    (cond [(punct? tv i "[") (loop (skip-group tv i "[" "]"))]
-          [(and (ident? tv i) (member (tv-text tv i) member-modifiers)) (loop (add1 i))]
-          [else i])))
+;; Skipping attribute lists (`[Attr] [Attr2(...)]`) and modifier keywords now always collects the
+;; attribute names too (skip-prefix/attrs, defined below alongside scan-types' attr-names-in, which
+;; this reuses) - a member's own graph-ir attrs (T63 follow-up) need exactly the same list scan-types
+;; already collects for a type, and scan-members is the only caller, so there is no reason to keep two
+;; near-identical skip loops, one of which silently drops the names.
 
 ;; Forward from i to the first top-level `{` or `;` (paren/bracket-balanced, so base lists, generic
 ;; constraints and constructor initializers do not confuse it). → that index.
@@ -541,7 +540,7 @@
        (loop (add1 i) d)]
       [(not (= depth (top-open-depth))) (loop (add1 i) depth)]   ; inside a member's body: skip token by token
       [else
-       (define j (skip-prefix tv i))
+       (define-values (j attrs) (skip-prefix/attrs tv i))
        (cond
          ;; a namespace: `namespace A.B { ... }` or file-scoped `namespace A.B;`. Tracked only for depth
          ;; (frames of kind 'namespace are excluded from qualname by `qualname` above).
@@ -576,7 +575,7 @@
          ;; a member, only meaningful directly inside a type body
          [(not (top-is-type?)) (loop (add1 j) depth)]
          [else
-          (define-values (consumed member) (try-member tv j depth (qualname)))
+          (define-values (consumed member) (try-member tv j depth (qualname) attrs))
           (cond [member (set! members (cons member members)) (loop consumed depth)]
                 [(> consumed i) (loop consumed depth)]
                 [else (loop (add1 i) depth)])])]))
@@ -716,11 +715,12 @@
       [else (loop (add1 i) acc)])))
 
 ;; Try to parse one member declaration starting at j (after attributes/modifiers were already skipped
-;; by the caller's skip-prefix). → (values next-index member-or-#f). next-index always makes progress.
-(define (try-member tv j depth qualname-prefix)
+;; by the caller's skip-prefix/attrs, whose collected names are threaded through as `attrs`). →
+;; (values next-index member-or-#f). next-index always makes progress.
+(define (try-member tv j depth qualname-prefix attrs)
   (define n (vector-length tv))
   (define (mk name kind start end #:arity [arity #f] #:paramtypes [pt '()])
-    (cs-member (if (string=? qualname-prefix "") name (string-append qualname-prefix "." name)) kind arity pt start end))
+    (cs-member (if (string=? qualname-prefix "") name (string-append qualname-prefix "." name)) kind arity pt attrs start end))
   (cond
     ;; destructor: ~ Name ( ) { ... }
     [(and (< j n) (punct? tv j "~") (< (add1 j) n) (ident? tv (add1 j)))
@@ -784,7 +784,7 @@
   (define open (cs-member-end m))                      ; end temporarily holds the "(" index
   (define-values (arity paramtypes close) (parse-params tv open))
   (define body-end (member-body-end tv close))
-  (values (add1 body-end) (cs-member (cs-member-qualname m) (cs-member-kind m) arity paramtypes (cs-member-start m) body-end)))
+  (values (add1 body-end) (cs-member (cs-member-qualname m) (cs-member-kind m) arity paramtypes (cs-member-attrs m) (cs-member-start m) body-end)))
 
 (define (finish-property tv m)
   (define opener (cs-member-end m))
@@ -795,13 +795,13 @@
   ;; an auto-property may carry a trailing initializer after its accessor block: `{ get; } = expr;`
   (define final-end
     (if (and (< body-end0 n) (punct? tv body-end0 "=")) (add1 (skip-through-semi tv (add1 body-end0))) body-end0))
-  (values final-end (cs-member (cs-member-qualname m) (cs-member-kind m) #f '() (cs-member-start m) (sub1 final-end))))
+  (values final-end (cs-member (cs-member-qualname m) (cs-member-kind m) #f '() (cs-member-attrs m) (cs-member-start m) (sub1 final-end))))
 
 (define (finish-field tv m)
   ;; consume through the top-level `;`, so `int a = 1, b = 2;` is one span; the requested name must be
   ;; among the comma-separated identifiers, which the caller matches by qualname alone (arity #f).
   (define end (skip-to-brace-or-semi tv (cs-member-end m)))
-  (values (add1 end) (cs-member (cs-member-qualname m) (cs-member-kind m) #f '() (cs-member-start m) end)))
+  (values (add1 end) (cs-member (cs-member-qualname m) (cs-member-kind m) #f '() (cs-member-attrs m) (cs-member-start m) end)))
 
 ;; After a `)` (methods) or `]` (indexers): a `{...}` body, an `=> expr;` body, or a bare `;` (abstract/
 ;; interface/partial declaration, or extern). → the index of the last token of the member.

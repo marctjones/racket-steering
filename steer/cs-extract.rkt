@@ -2,9 +2,11 @@
 ;; The C# implementation of lang.rkt's extract/resolve-import graph-ir contract (T63). A body walker
 ;; over each cs-member's/cs-type's own token range (csharp.rkt's cs-lex/scan-members/scan-types do the
 ;; hard lexing and frame-tracking; nothing here re-parses C#) emitting calls (`M(`, `this.M(`, `base.M(`,
-;; `Type.M(`, `new T(`) with arity, each type's base/interface list (from scan-types), attributes (from
-;; scan-types, types only - see the note below), `using` directives as imports, and has-statements?.
-;; No dotnet SDK is used or needed, same as the rest of this module's C# support.
+;; `Type.M(`, `new T(`) with arity, each type's base/interface list (from scan-types), attributes on
+;; BOTH types and members (from scan-types/scan-members - a 'decorates ref per usage, see
+;; attr-decorates-refs below, plus the metadata already fed into each def's own decorators field),
+;; `using` directives as imports, and has-statements?. No dotnet SDK is used or needed, same as the
+;; rest of this module's C# support.
 ;;
 ;; Known, deliberate scope cuts (recorded per the project's own convention of writing these down
 ;; rather than silently shipping a narrower thing than the tracked task describes):
@@ -12,10 +14,6 @@
 ;;    (e.g. resolving `g.Method()` to `IGuard.Method` because a parameter `IGuard g` is in scope).
 ;;    That needs a new receiver-hint kind and local-variable/parameter type tracking; only self/base
 ;;    receivers get that treatment here, like every other language's extractor.
-;;  - Member-level attributes are not extracted (only TYPE-level ones): cs-member's own [start,end]
-;;    range begins AFTER attributes/modifiers are already skipped by scan-members, so a member's
-;;    attribute tokens are not available without re-scanning from the member's ORIGINAL (pre-skip)
-;;    position, which scan-members does not preserve.
 ;;  - resolve-import (`using X`) can only match a project file whose PATH mirrors namespace X as a
 ;;    folder path (a common but not universal .NET convention) - the lang.rkt resolve-import contract
 ;;    is path-only (no access to other files' declared namespaces), so a `using` that does not follow
@@ -58,6 +56,27 @@
          [(member (tx tv i) '(")" "]" ">")) (loop (add1 i) (max 0 (sub1 d)) n #t)]
          [(and (zero? d) (p? tv i ",")) (loop (add1 i) d (add1 n) #f)]
          [else (loop (add1 i) d n #t)]))]))
+
+;; T68 follow-up (measured on GuardClauses, notes/16 SS3): attribute names/def-decorators were tracked
+;; as metadata but never emitted as a graph EDGE, so every attribute class (`NotNullAttribute`,
+;; `CallerArgumentExpressionAttribute`, ...) used only via `[AttrName]` syntax was structurally
+;; unreachable - 211 of 212 "dead" findings in that measurement were exactly this. `[AttrName]` in
+;; source usually drops the class's own "Attribute" suffix (`[Obsolete]` for `class ObsoleteAttribute`),
+;; and which form is real can only be known once the whole project's defs are visible - not from this
+;; one file - so both the name as written and, when it lacks the suffix, the suffixed form are emitted
+;; as separate 'decorates refs; whichever one is not a real project symbol simply resolves to nothing
+;; (an ordinary external ref, same as any other unmatched call), so this stays entirely inside the
+;; extractor - no linker change, since the suffix convention is C#-specific, not a general graph rule.
+;; Scope matches Python's own decorator-ref convention (steer/python.rkt's self._decorator_refs): the
+;; ENCLOSING scope of the decorated def, not the def's own qualname, since applying an attribute is
+;; conceptually part of the enclosing declaration, not the decorated member itself.
+(define (attr-decorates-refs names scope line)
+  (append*
+   (for/list ([a names])
+     (if (string-suffix? a "Attribute")
+         (list (ref 'decorates a #f scope #f line))
+         (list (ref 'decorates a #f scope #f line)
+               (ref 'decorates (string-append a "Attribute") #f scope #f line))))))
 
 ;; call/decorator-style keywords that are never themselves a project symbol to resolve
 (define control-keywords
@@ -193,6 +212,11 @@
          (def (type-kind->def-kind (cs-type-kind ty)) (last (string-split (cs-type-qualname ty) ".")) (cs-type-qualname ty)
               scope line endl (format "~a ~a" (cs-type-kind ty) (cs-type-qualname ty)) (tokens-hash tv (cs-type-start ty) (cs-type-end ty))
               (cs-type-bases ty) (cs-type-attrs ty) (entry-here? line) (exported-type? ty))))
+     (define type-attr-refs
+       (append*
+        (for/list ([ty types])
+          (attr-decorates-refs (cs-type-attrs ty) (enclosing-type-of (cs-type-qualname ty))
+                                (ctok-line (vector-ref tv (cs-type-start ty)))))))
      (define member-defs
        (for/list ([m members])
          (define scope (enclosing-type-of (cs-member-qualname m)))
@@ -210,12 +234,17 @@
                (format "~a" bare-name)))
          (def (member-kind->def-kind m enclosing-name) bare-name (cs-member-qualname m)
               scope line endl shape (tokens-hash tv (cs-member-start m) (cs-member-end m))
-              '() '() (entry-here? line) (exported-member? m scope))))
+              '() (cs-member-attrs m) (entry-here? line) (exported-member? m scope))))
      (define member-refs
        (append*
         (for/list ([m members])
           (define bstart (member-body-start tv (cs-member-start m) (cs-member-end m)))
           (scan-refs tv bstart (cs-member-end m) (cs-member-qualname m)))))
+     (define member-attr-refs
+       (append*
+        (for/list ([m members])
+          (attr-decorates-refs (cs-member-attrs m) (enclosing-type-of (cs-member-qualname m))
+                                (ctok-line (vector-ref tv (cs-member-start m)))))))
      ;; top-level refs: any token span NOT covered by a member's own [start,end] is scanned at module
      ;; scope (scope=#f) - a type's base-list call (`record Dog(int x) : Animal(x)`), a top-level
      ;; C# 9+ statement, anything outside a member body. Gaps, not "the whole file minus ranges" one
@@ -232,7 +261,9 @@
      (define imports (for/list ([u usings]) (import (car u) (cadr u) (caddr u))))
      ;; has-statements?: no C# type at all, but real tokens - the rare C# 9+ top-level-statements form
      (define has-stmt? (and (null? types) (pair? tokens)))
-     (file-facts path 'csharp (append type-defs member-defs) (append member-refs top-refs) imports has-stmt? (short-text-hash text))]))
+     (file-facts path 'csharp (append type-defs member-defs)
+                 (append member-refs top-refs type-attr-refs member-attr-refs)
+                 imports has-stmt? (short-text-hash text))]))
 
 (define (tokens-hash tv start end)
   (short-sha1 (format "~s" (for/list ([i (in-range start (add1 end))]) (cons (ctok-kind (vector-ref tv i)) (ctok-text (vector-ref tv i)))))))

@@ -11,7 +11,7 @@
  (tags ("graph"))
  (claimed-by "xl3")
  (created "2026-09-27T08:50:21Z")
- (updated "2026-09-27T10:17:12Z")
+ (updated "2026-09-27T16:19:44Z")
  (log
   (((agent "xl3")
     (kind note)
@@ -24,4 +24,10 @@
     (kind done)
     (seq 287)
     (ts "2026-09-27T10:17:12Z")
-    (verified #t)))))
+    (verified #t))
+   ((agent "xl3-followup")
+    (kind note)
+    (seq 309)
+    (text
+     "Follow-up (post-milestone): cs-extract.rkt now emits 'decorates refs for C# attribute usage on both types (cs-type-attrs, already existed as metadata) and members (new: cs-member gained an attrs field via scan-members' skip-prefix/attrs, replacing the name-dropping skip-prefix). Dual-emits bare+Attribute-suffixed name (verified against GuardClauses' real source before coding: usage sites omit the suffix), so no linker change needed. Re-measured GuardClauses at f96b823: dead 212->209, resolution ratio dropped 13.8%->10.4% (expected: thousands of new correctly-external xUnit [Fact]/[Theory] refs dilute the ratio, not a regression). Root cause of the small delta: most real attribute usage in GuardClauses (CallerArgumentExpressionAttribute, most JetBrains ones) is on PARAMETERS, a third tier not covered - filed as a separate follow-up task (spawn_task, not yet in the tracker as a Tn). Details in notes/16-code-graph.md SS7. tests/cs-graph-test.rkt extended with a LoudAttribute/QuietAttribute fixture case; full suite 1590 tests pass, make test-bin 58 pass.")
+    (ts "2026-09-27T16:19:44Z")))))
