@@ -42,7 +42,7 @@
 (define python-gate
   (gate 'python '(".py" ".pyi") "statement" python-gate-check
         python-find-anchor python-list-names
-        #f #f #f #f #f))
+        py-extract py-resolve-import #f #f #t))
 
 (define csharp-gate
   (gate 'csharp '(".cs") "declaration" cs-gate-check
