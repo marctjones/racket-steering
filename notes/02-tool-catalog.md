@@ -138,6 +138,15 @@ Language-independent in value; the tracker is implemented first as the `steer` C
 - Claude Code skills shipped inside the binary (`steer skills install`); hook commands: SessionStart runs `resume`,
   PostToolUse runs structural checks on edited `.rkt` files.
 
+### F8 · Vision and priorities record (S, value unknown) — proposed 2026-09-27, tracked as T71-T76
+- A north star (rarely changes) plus a ranked priority list, separate from tasks; `steer vision show`/`set`,
+  folded into `resume`'s packet the way an active task already is. The gap F1-F7 do not cover: `stale`/F4's rules
+  catch CODE drifting from a PLAN; nothing catches the PLAN's own GOALS drifting without anyone deciding they
+  should. `set` is a distinctly-named write path specifically so a host's own permission system can gate it on
+  human confirmation - steer cannot know who is typing, so that protection has to come from outside the tool.
+  Proposed by a peer project's session (a local embedded-LLM Racket IDE, via cross-session message) hitting this
+  gap in practice, not from this project's own backlog review.
+
 ## Build order suggestion
 
 E1 → A1 → B1 → A2 → A3 (first slice, run evaluation) → C4 → then choose among C1/C3 (agentic) or A4/A6 (quality)
