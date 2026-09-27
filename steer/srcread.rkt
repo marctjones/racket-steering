@@ -7,7 +7,7 @@
 (require racket/list racket/string racket/port racket/path)
 (provide read-racket-source racket-file? sexp-lang? header-lang file->text
          find-definitions def-name-strings datum-hash text-hash hex
-         position->line)
+         position->line symbol->anchor-name racket-find-anchor racket-list-names)
 
 (define racket-exts '(#".rkt" #".rktl" #".ss" #".scm" #".rkts"))
 
@@ -144,3 +144,37 @@
 (define (position->line text pos)
   (add1 (for/sum ([c (in-string text 0 (min (string-length text) (max 0 (sub1 pos))))])
           (if (char=? c #\newline) 1 0))))
+
+;; ---------------------------------------------------------------------------------------------
+;; find-anchor / list-names for Racket, in the same hasheq shape python-find-anchor/cs-find-anchor
+;; use (T58): found? kind? line end hash, or found?=#f problem candidates. Moved here (rather than
+;; anchors.rkt) so lang.rkt's registry can require it without a cycle back through anchors.rkt.
+
+;; How a definition name is written after `#`: plainly, or in printed form when the plain text would
+;; be empty or ambiguous (Rosette defines `||`, which Racket reads as the empty symbol).
+(define (symbol->anchor-name s)
+  (define str (symbol->string s))
+  (if (or (string=? str "") (regexp-match? #px"[\\s#|]" str)) (format "~s" s) str))
+
+;; text qualname → hasheq, same shape resolve-anchor's Racket branch produced pre-T58.
+(define (racket-find-anchor text name #:source [source 'input])
+  (with-handlers ([exn:fail:read? (λ (e) (hasheq 'found? #f
+                                                  'problem (string-append "unreadable: " (car (string-split (exn-message e) "\n")))))])
+    (define-values (forms _lang _t) (read-racket-source text #:source source))
+    (define d (for/first ([d (find-definitions forms)]
+                          #:when (or (equal? (symbol->anchor-name (car d)) name)
+                                     (equal? (symbol->string (car d)) name)))
+                d))
+    (cond
+      [d
+       (define f (cdr d))
+       (hasheq 'found? #t
+               'line (syntax-line f)
+               'end (position->line text (+ (syntax-position f) (max 0 (sub1 (syntax-span f)))))
+               'hash (datum-hash f))]
+      [else (hasheq 'found? #f 'problem (format "no definition of ~a" name))])))
+
+(define (racket-list-names text)
+  (with-handlers ([(λ (e) #t) (λ (e) '())])
+    (define-values (forms _lang _t) (read-racket-source text))
+    (map (λ (d) (symbol->anchor-name (car d))) (find-definitions forms))))
