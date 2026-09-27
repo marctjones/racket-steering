@@ -3,7 +3,7 @@
 ;; Global flags may appear anywhere: --json --full --limit N --agent NAME --root DIR
 ;; Exit codes (stable, hooks depend on them): 0 ok · 1 findings/refused · 2 usage · 3 internal.
 (require racket/list racket/string racket/port json
-         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt" "doc.rkt" "doctor.rkt" "failures.rkt" "rules.rkt")
+         "common.rkt" "store.rkt" "cmd-tasks.rkt" "cmd-code.rkt" "skills.rkt" "github.rkt" "doc.rkt" "doctor.rkt" "failures.rkt" "rules.rkt" "cmd-spec.rkt")
 (provide main)
 
 (define version "0.2.0")
@@ -26,6 +26,22 @@ Example: steer import - <<'PLAN'
 (task "Schema" #:id schema #:check "raco test schema-test.rkt")
 (task "Export" #:after (schema) #:check "raco test export-test.rkt")
 PLAN
+EOF
+  )
+
+(define spec-details #<<EOF
+One criterion per line; blank lines and lines starting with # are skipped:
+  The <system> SHALL <verb> <what>.
+  WHEN <trigger>, the <system> SHALL <verb> <what>.
+  WHILE <state>, the <system> SHALL <verb> <what>.
+  IF <trigger>, THEN the <system> SHALL <verb> <what>.
+  WHERE <feature>, the <system> SHALL <verb> <what>.
+<verb> is an observable one, in the base form: write, return, refuse, exit, print, contain, ...
+A criterion a test cannot check is refused with a fix: "should" (write SHALL), "the code SHALL work" (name an
+observable), "etc.", "and/or", "fast", "as needed", "several". --lax turns those refusals into warnings.
+Example: steer spec check - <<'GOAL'
+WHEN the input is empty, the export SHALL write only the header row.
+GOAL
 EOF
   )
 
@@ -85,6 +101,9 @@ EOF
    (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE.rkt...]" "Racket-only public API lock: exports, arity, contracts; diff classifies breaks")
    (cmd "doc" cmd-doc "steer doc exists|sig ID [MODULE] | search WORD... | exports MODULE"
         "Racket documentation lookup: does this name exist, its documented signature, what a module provides")
+   (cmd "spec" cmd-spec "steer spec check|render FILE|-  [--lax]"
+        "acceptance criteria in a controlled form (EARS): parse, lint vagueness with a fix, print the canonical sentences"
+        spec-details)
    (cmd "rules" cmd-rules "steer rules check|facts|init [--rules FILE]"
         "architecture rules over the require graph, written as Datalog (layers, forbidden dependencies); reports the require path")
    (cmd "failures" cmd-failures "steer failures [--since ISO-DATE] [--who AGENT] [--class CLASS] [--by class|kind|tool|agent]"
