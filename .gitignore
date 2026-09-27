@@ -4,3 +4,6 @@ dist/
 # sample corpora and eval sets: fetched by `make samples`, never committed
 samples/
 .venv-mlx/
+# generated eval run artifacts (prompts/completions/results jsonl): reproducible from notes/*, large,
+# and would otherwise bloat the repo; the numbers they back are written into notes/*.md
+run*/
