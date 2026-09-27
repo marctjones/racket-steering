@@ -203,15 +203,29 @@
   (define imports (for/list ([r reqs]) (import (format "~a" (car r)) #f (cdr r))))
   (file-facts path 'racket (reverse defs) (reverse refs) imports has-stmt? (text-hash text)))
 
-;; resolve-import: a require's spec resolves to a project file exactly when it names a relative path
-;; that lands on one of `all-paths`; a collection/library spec (symbol, or a submod list) is external
-;; (steer/rules.rkt's existing `uses` vs `requires` distinction, unchanged).
+;; resolve-import: a require's spec resolves to a project file when it names a relative path (any
+;; extension-bearing spec, e.g. "helper.rkt") that lands on one of `all-paths`, OR - found measuring
+;; this on a real multi-file library (T68, rebellion): a COLLECTION-style spec, e.g.
+;; `(require rebellion/type/tuple)`, which is not a relative path at all. Racket resolves that
+;; against an installed collection named "rebellion"; when the collection root simply IS this
+;; project's own root (a package cloned/checked out on its own, not installed), the same spec maps to
+;; a project file once its OWN leading package-name segment is dropped: "type/tuple.rkt" here.
+;; A genuine collection/library spec that is neither of these stays external, same as ever (the
+;; `uses` vs `requires` distinction check-rules already made before the graph existed).
 (define (rkt-resolve-import lang spec importing-path root all-paths)
   (cond
     [(not (string? spec)) '()]
     [else
      (define dir (let-values ([(d _n _x) (split-path (build-path root importing-path))]) d))
-     (define target
+     (define (resolve-rel base-dir rel)
        (with-handlers ([exn:fail? (λ (e) #f)])
-         (path->string (find-relative-path (simplify-path root) (simplify-path (build-path dir spec))))))
-     (if (and target (member target all-paths)) (list target) '())]))
+         (path->string (find-relative-path (simplify-path root) (simplify-path (build-path base-dir rel))))))
+     (define direct (resolve-rel dir spec))
+     (cond
+       [(and direct (member direct all-paths)) (list direct)]
+       [else
+        (define segs (string-split spec "/"))
+        (define stripped (and (> (length segs) 1) (string-join (cdr segs) "/")))
+        (define candidates (filter values (list (and stripped (resolve-rel root (string-append stripped ".rkt")))
+                                                 (and stripped (resolve-rel root stripped)))))
+        (filter (λ (p) (member p all-paths)) candidates)])]))

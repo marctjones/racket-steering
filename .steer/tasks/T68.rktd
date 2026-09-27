@@ -1,6 +1,6 @@
 ((id "T68")
  (title "Measure the graph on note 12's real projects and record the numbers")
- (status open)
+ (status active)
  (priority 2)
  (goal
   "On rebellion (samples/corpus), tomli, aiofiles and GuardClauses at note 12's pinned commits: refs by confidence and unresolved per language, entries per heuristic, dead-symbol count, and a hand-checked sample of 20 dead findings per language classified true/false; written to notes/16-code-graph.md with [tested] tags; the test asserts rebellion's resolution ratio does not fall below the recorded floor. No language gets its own measurement methodology - one script, run per language.")
@@ -9,7 +9,7 @@
  (anchors ())
  (touches ())
  (tags ("graph"))
- (claimed-by #f)
+ (claimed-by "xl3")
  (created "2026-09-27T08:50:21Z")
- (updated "2026-09-27T08:50:21Z")
+ (updated "2026-09-27T11:18:54Z")
  (log ()))

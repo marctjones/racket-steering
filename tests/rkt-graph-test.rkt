@@ -100,3 +100,22 @@
 (check-true (procedure? (gate-resolve-import racket-gate)))
 (define fs2 ((gate-extract racket-gate) shapes-text "shapes.rkt"))
 (check-equal? fs2 fs "the gate's extract slot IS rkt-extract, not a second implementation")
+
+;; ---------------------------------------------------------------------------------------------
+;; resolve-import: a collection-style require (`(require pkgname/sub/mod)`, not a relative path)
+;; resolves against the project's OWN root once its leading package-name segment is dropped - found
+;; measuring T68 on a real multi-file library (rebellion), where this was the DOMINANT require style
+;; and its absence meant every cross-file call fell back to name-match instead of declared.
+
+(define dir2 (make-temporary-directory "steer-rkt-collection~a"))
+(define (write-file2! rel text)
+  (define p (build-path dir2 rel))
+  (make-directory* (let-values ([(d _n _x) (split-path p)]) d))
+  (call-with-output-file p #:exists 'truncate (λ (o) (void (write-string text o)))))
+(write-file2! "type/tuple.rkt" "#lang racket/base\n(provide make-tuple)\n(define (make-tuple x) x)\n")
+(write-file2! "point.rkt" "#lang racket/base\n(require pkg/type/tuple)\n(define (f) (make-tuple 1))\n")
+(check-equal? (rkt-resolve-import 'racket "pkg/type/tuple" "point.rkt" dir2 (list "point.rkt" "type/tuple.rkt"))
+              (list "type/tuple.rkt"))
+(check-equal? (rkt-resolve-import 'racket "racket/base" "point.rkt" dir2 (list "point.rkt" "type/tuple.rkt")) '()
+              "a real installed-collection spec that does not match anything in-project stays external")
+(delete-directory/files dir2)
