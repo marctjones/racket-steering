@@ -12,6 +12,8 @@
 (require racket/list racket/string racket/file racket/port racket/format racket/math racket/runtime-path json
          "corpus.rkt")
 
+(provide eval-dir read-meta meta-ref prompt-for task-dirs extract-code judge wilson median pct report-results run-cmd)
+
 (define-runtime-path here ".")
 (define eval-dir (simplify-path (build-path here 'up "samples" "eval" "tasks")))
 
@@ -96,7 +98,9 @@
   (close-input-port out)
   (values (if done? (subprocess-status p) 'timeout) (unbox buf)))
 
-;; → 'pass | 'wrong | 'no-compile | 'timeout
+;; → (values 'pass|'wrong|'no-compile|'timeout detail-text)
+;; detail-text is the tail of the relevant raco output: the compile error for no-compile, the test
+;; failure for wrong, "" for pass/timeout. Used to build C1's raw-error retry feedback.
 (define (judge dir-of-task meta code)
   (define tmp (make-temporary-directory "steer-eval~a"))
   (define fmt (meta-ref meta 'format))
@@ -114,13 +118,36 @@
        (call-with-output-file (build-path tmp (meta-ref meta 'solution-file)) (λ (o) (void (write-string code o))))
        (for/first ([f (directory-list dir-of-task)] #:when (regexp-match? #rx"-test[.]rkt$" (path->string f))) (path->string f))]))
   (define-values (c1 o1) (run-cmd tmp 60 "make" file))
-  (define result
-    (cond [(eq? c1 'timeout) 'timeout]
-          [(not (eqv? c1 0)) 'no-compile]
+  (define-values (result detail)
+    (cond [(eq? c1 'timeout) (values 'timeout "")]
+          [(not (eqv? c1 0)) (values 'no-compile (head-text o1))]
           [else (define-values (c2 o2) (run-cmd tmp 60 "test" file))
-                (cond [(eq? c2 'timeout) 'timeout] [(eqv? c2 0) 'pass] [else 'wrong])]))
+                (cond [(eq? c2 'timeout) (values 'timeout "")]
+                      [(eqv? c2 0) (values 'pass "")]
+                      [else (values 'wrong (head-text o2))])]))
   (delete-directory/files tmp)
-  result)
+  (values result detail))
+
+;; HARNESS BUG (found while scoring real model completions for T9, not the synthetic fixtures this
+;; scorer was validated on): `raco make`'s read/compile errors put the real message on the FIRST
+;; line, followed by a long "context...\n  <continuation marks>" stack dump; `raco test` prints each
+;; failure's name/location/params at the point it happens, then repeats aggregate "N success(es)..."
+;; counts afterwards. tail-text (steer/checks.rkt) keeps the LAST ~20 lines/1500 chars, which for
+;; both of these is exactly the noise (stack frames, or repeated counts) and drops the one thing a
+;; retry prompt needs — the actual error. head-text keeps the front instead, and for raco make also
+;; drops everything from "context..." onward since it is never useful feedback.
+(define (head-text s #:lines [max-lines 20] #:chars [max-chars 1500])
+  (define ls (filter (λ (l) (not (regexp-match? #px"^\\s*$" l)))
+                     (string-split (regexp-replace* #rx"\e\\[[0-9;]*[A-Za-z]" s "") "\n")))
+  (define ls* (let loop ([l ls] [acc '()])
+                 (cond [(null? l) (reverse acc)]
+                       [(regexp-match? #px"^\\s*(compilation )?context\\.\\.\\.\\s*$" (car l)) (reverse acc)]
+                       [else (loop (cdr l) (cons (car l) acc))])))
+  (define head (if (> (length ls*) max-lines) (take ls* max-lines) ls*))
+  (define clipped (for/list ([l head]) (if (> (string-length l) 200) (string-append (substring l 0 199) "…") l)))
+  (let loop ([ls clipped])
+    (define t (string-join ls "\n"))
+    (if (and (> (string-length t) max-chars) (pair? (cdr ls))) (loop (reverse (cdr (reverse ls)))) t)))
 
 (define (read-jsonl f) (for/list ([l (file->lines f)] #:unless (string=? (string-trim l) "")) (string->jsexpr l)))
 
@@ -136,13 +163,14 @@
            (λ ()
              (semaphore-wait sem)
              (begin0
-               (let* ([id (hash-ref c 'id)] [d (hash-ref dirs id)] [m (read-meta d)]
-                      [p (hash-ref prompts id)]
-                      [code (extract-code (hash-ref c 'completion ""))]
-                      [r (if (string=? (string-trim code) "") 'no-compile (judge d m code))])
+               (let*-values ([(id) (hash-ref c 'id)] [(d) (hash-ref dirs id)] [(m) (read-meta d)]
+                             [(p) (hash-ref prompts id)]
+                             [(code) (extract-code (hash-ref c 'completion ""))]
+                             [(r detail) (if (string=? (string-trim code) "") (values 'no-compile "(empty completion / no code block found)") (judge d m code))])
                  (hasheq 'id id 'kind (hash-ref p 'kind) 'mutation (hash-ref p 'mutation #f) 'result (symbol->string r)
                          'pass (eq? r 'pass) 'completion_tokens (hash-ref c 'completion_tokens 0)
-                         'prompt_tokens (hash-ref c 'prompt_tokens 0) 'seconds (hash-ref c 'seconds 0)))
+                         'prompt_tokens (hash-ref c 'prompt_tokens 0) 'seconds (hash-ref c 'seconds 0)
+                         'code code 'detail detail))
                (semaphore-post sem))))))
       (map thread-result threads)))
   (call-with-output-file (caddr args) #:exists 'truncate
