@@ -1,0 +1,17 @@
+((id "T74")
+ (title
+  "Permission-gating convention for `steer vision set`, documented and wired into `steer hook config`")
+ (status open)
+ (priority 2)
+ (goal
+  "steer cannot know who is typing a command, so real protection against silent drift in the vision itself (as opposed to code drifting from a plan, which anchors already catch) has to come from OUTSIDE the tool: a distinctly-named write command so a host's own permission system can gate it on human confirmation, the same pattern a git force-push already needs external gating for. `steer hook config`'s emitted settings.json snippet gains a commented example rule naming `steer vision set` specifically (not `steer vision *` or `steer *`, so the gate cannot be bypassed by a broader existing allow-rule); the steer-tasks skill documents this explicitly: an agent should expect this write to need human confirmation and should not treat a refusal as a bug. Every write is still logged (T-vision-store) even when it is a human dictating the change through an agent, which is the normal case, not an edge case - the log is for review, not for detecting who typed it.")
+ (after ("T71"))
+ (checks ("raco test tests/vision-gate-test.rkt"))
+ (anchors (((hash "de1ed9fb351c") (ref "steer/main.rkt#hook-config"))))
+ (touches ())
+ (tags ("vision"))
+ (claimed-by #f)
+ (github ((digest "dbb77806c468") (kind issue) (number 30)))
+ (created "2026-09-27T18:12:49Z")
+ (updated "2026-09-27T18:14:06Z")
+ (log ()))

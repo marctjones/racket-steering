@@ -29,9 +29,10 @@ One executable, short text output (or `--json` in the note-03 protocol), stable 
 | store health | `doctor [--against REF] [--fix]`: corrupt/conflicted files, dangling deps, stale claims, ids another branch uses for a different task (renumbers ours), duplicate event numbers after merges | F1 |
 | continuity | `resume` (budgeted packet) · `since N` (event cursor) · `graph` (cycles, layers, critical path) | F1 |
 | plan drift | `stale` / `refresh`: symbol anchors (`file#name`) hashed over the datum, so reformatting is not drift; exact for Racket/Python/C#, heuristic elsewhere | F2 |
-| code checks | `syntax [--fix]`: a reader/parser error + a verified repair — Racket, Python, C#; anything else is `skipped` · `dup`/`api` are Racket-only | A1 F5 F3 |
+| code checks | `syntax [--fix]`: a reader/parser error + a verified repair — Racket, Python, C#; anything else is `skipped` · `dup` is Racket-only | A1 F5 |
 | criteria | `spec check\|render FILE\|-`: acceptance criteria in a controlled (EARS) form; refuses vague ones (weak modals, "etc.", "fast", hedges, hidden conditions) with a located fix | G2 |
-| architecture | `rules check\|facts\|init`: layering rules as Datalog over the require graph; each violation shows the require path (this repo checks itself: `.steer/rules.dl`) | F4 |
+| code graph | `rules check\|facts\|entries\|dead\|reach SYM\|init`: one shared call graph across Racket/Python/C# — layering rules as Datalog over the require graph (each violation shows the path; this repo checks itself: `.steer/rules.dl`), entry points by admitting rule, dead-symbol findings, what reaches/is reached by a symbol | F4 |
+| public API | `api snapshot\|diff\|show [MODULE...] \| ... --entries`: a committed lock of exports (Racket: dynamic load; Python: static ast) or, across all three languages, every entry point's real signature from the shared graph; diff classifies breaks | F3 |
 | Racket docs | `doc exists\|sig\|search\|exports`: is this name real, its documented signature and `(require ...)`, nearest racket names for a wrong one | B1 |
 | harness | `skills install` · `hook session-start` · `hook post-edit` · `hook config` | F7 |
 
@@ -45,7 +46,7 @@ Needs Racket 9 (tested on 9.3 CS).
 
 ```bash
 make          # build/steer (raco exe)
-make test     # unit, GitHub-sync and end-to-end CLI tests (163 at v0.2.0)
+make test     # unit, GitHub-sync and end-to-end CLI tests (1500+ at v0.3.0)
 make test-bin # the end-to-end suite against the compiled binary
 make install  # dist/ (self-contained) + symlink in ~/.local/bin (PREFIX=... to change)
 ```
@@ -102,6 +103,8 @@ Plan format (`steer help import`):
 | `notes/15-architecture-rules.md` | `steer rules`: Datalog over the require graph; what was tested, and why evaluation is ours |
 | `notes/14-doc-lookup.md` | `steer doc`: catches wrong names; held-out top-1 4 → 13 of 20; what is measured and what is not |
 | `notes/11-regular-grammar-languages.md` | conlangs and controlled English for steering; token measurements; G-series tools; chosen: acceptance criteria |
+| `notes/12-cross-language-review.md` | does `steer` help on real Python/Racket/C# projects; gaps found, tasked as XL1-XL3 |
+| `notes/16-code-graph.md` | the code graph measured on real projects: resolution ratios, entry heuristics, dead-finding true/false-positive rates per language |
 | `steer/` | the CLI (`main.rkt` entry; one module per concern) |
 | `skills/` | Claude Code skills, embedded into the binary at compile time |
 | `tests/` | rackunit unit tests and end-to-end CLI tests |
@@ -115,8 +118,23 @@ Plan format (`steer help import`):
   import) and C# (no `dotnet` needed for syntax/anchors). Any other file type is `skipped` by
   `syntax`, resolved by a keyword/indentation heuristic (labelled `~heuristic`) for anchors, and shown
   only as the check's raw output tail by `done`.
-- `dup` and `api` are Racket-only; there is no Python or C# equivalent yet (F5b, F3/XL2).
-- `steer api` instantiates modules (their top-level code runs) in a plain subprocess; sandboxing is task T20.
+- **The code graph** (`steer help rules`/`api` print the same table): `rules`/`api --entries` share one
+  call graph across Racket, Python and C#, built only from calls actually written as calls — it never
+  sees a plain value or attribute reference. A `dead(S)` finding means "no call was found," never
+  "this is unused": measured on four real projects (notes/16), most sampled dead findings were exactly
+  a function passed/assigned as a value rather than called, a decorator/attribute-only usage (C#'s
+  attribute classes are not yet tracked as decorated refs the way Python's are), or a third-party
+  struct-like macro's generated bindings (Racket). Cross-file resolution is `declared` (a resolved
+  import) for Racket/Python, but name-match only for C# — no dotnet SDK, no namespace index, so a
+  `using` almost never maps to one file. C# also cannot tell an added *required* `api --entries`
+  parameter from an added *optional* one (no default-value tracking): every added C# parameter is
+  classified breaking.
+- `dup` is Racket-only; there is no Python or C# equivalent yet (F5b). `api snapshot MODULE...` (v1,
+  no `--entries`) is also Racket/Python only — C# has no non-`--entries` route (T55/T56, Roslyn-based
+  precision upgrades for C#, are optional and not built).
+- `steer api snapshot MODULE...` (v1) instantiates Racket modules (their top-level code runs) in a
+  plain subprocess; sandboxing is task T20. `api --entries` (v2) never runs any code — it reads the
+  static graph, same as `rules`.
 - `done`'s structured test-failure detail understands pytest, `dotnet test` and `raco test`; an
   unrecognised runner falls back to the raw tail.
 - Task ids are sequential per store; two branches can both create `T7` — `steer doctor --against REF --fix` resolves it.

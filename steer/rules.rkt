@@ -17,105 +17,14 @@
 ;; package's runtime returned no answers for any query in this environment (probed), and bottom-up
 ;; evaluation of positive rules is small.
 (require racket/list racket/string racket/file racket/path racket/port
-         datalog/parse datalog/ast
-         "common.rkt" "store.rkt" "srcread.rkt")
-(provide cmd-rules extract-requires glob->regexp run-datalog check-rules)
+         "common.rkt" "store.rkt" "srcread.rkt" "graph.rkt" "datalog.rkt" "entries.rkt" "reach.rkt"
+         (only-in "rkt-extract.rkt" extract-requires rkt-extract rkt-resolve-import))
+(provide cmd-rules extract-requires glob->regexp run-datalog check-rules module-facts referenced-predicates
+         (all-from-out "datalog.rkt"))
 
-;; ---------------------------------------------------------------------------------------------
-;; Datalog evaluation over the parsed AST (positive rules, naive bottom-up with a first-column index)
-
-(struct rule (head body line))                    ; head/body literals as (pred . terms); term: (cons 'var sym) | value
-
-(define (term-of t) (if (variable? t) (cons 'var (variable-sym t)) (constant-value t)))
-(define (lit->list l) (cons (predicate-sym-sym (literal-predicate l)) (map term-of (literal-terms l))))
-(define (var? t) (and (pair? t) (eq? (car t) 'var)))
-
-;; → (values facts rules queries); facts: list of (pred . values). Raises exn:steer on unsafe rules.
-(define (parse-rules text source)
-  (define stmts
-    (with-handlers ([exn:fail? (λ (e) (fail! 'rules-syntax (format "~a: ~a" source (car (string-split (exn-message e) "\n")))
-                                             #:hint "rules are positive Datalog: `head(X, \"s\") :- body1(X), body2(X, Y).`"))])
-      (parameterize ([current-source-name source]) (parse-program (open-input-string text)))))
-  (for/fold ([facts '()] [rules '()] [queries '()] #:result (values (reverse facts) (reverse rules) (reverse queries)))
-            ([s stmts])
-    (cond
-      [(assertion? s)
-       (define c (assertion-clause s))
-       (define head (lit->list (clause-head c)))
-       (define body (map lit->list (clause-body c)))
-       (define line (let ([sl (assertion-srcloc s)]) (and (list? sl) (>= (length sl) 2) (cadr sl))))
-       (cond
-         [(null? body)
-          (when (ormap var? (cdr head))
-            (fail! 'rules-unsafe (format "~a: fact ~a has a variable" source (car head)) #:hint "facts must be ground"))
-          (values (cons head facts) rules queries)]
-         [else
-          (define bound (for*/list ([b body] [t (cdr b)] #:when (var? t)) t))
-          (for ([t (cdr head)] #:when (and (var? t) (not (member t bound))))
-            (fail! 'rules-unsafe (format "~a: in the rule for `~a`, variable ~a appears only in the head" source (car head) (cdr t))
-                   #:hint "every head variable must also appear in a body literal"))
-          (values facts (cons (rule head body line) rules) queries)])]
-      [(query? s) (values facts rules (cons (lit->list (query-question s)) queries))]
-      [else (values facts rules queries)])))
-
-;; relations: pred → (mutable set of tuples as lists), plus a first-column index
-(struct rel (tuples index) #:mutable)
-(define (make-rel) (rel (make-hash) (make-hash)))
-(define (rel-add! r tuple)
-  (and (not (hash-ref (rel-tuples r) tuple #f))
-       (begin (hash-set! (rel-tuples r) tuple #t)
-              (hash-update! (rel-index r) (if (pair? tuple) (car tuple) '()) (λ (l) (cons tuple l)) '())
-              #t)))
-
-;; unify body literal terms with a tuple under substitution `s` (immutable hash var → value)
-(define (unify terms tuple s)
-  (let loop ([ts terms] [vs tuple] [s s])
-    (cond [(and (null? ts) (null? vs)) s]
-          [(or (null? ts) (null? vs)) #f]
-          [(var? (car ts))
-           (define b (hash-ref s (cdr (car ts)) 'unbound))
-           (cond [(eq? b 'unbound) (loop (cdr ts) (cdr vs) (hash-set s (cdr (car ts)) (car vs)))]
-                 [(equal? b (car vs)) (loop (cdr ts) (cdr vs) s)]
-                 [else #f])]
-          [(equal? (car ts) (car vs)) (loop (cdr ts) (cdr vs) s)]
-          [else #f])))
-
-(define (candidates r terms s)
-  (define t0 (and (pair? terms) (car terms)))
-  (define key (cond [(not t0) #f]
-                    [(var? t0) (let ([b (hash-ref s (cdr t0) 'unbound)]) (if (eq? b 'unbound) #f (list b)))]
-                    [else (list t0)]))
-  (if key (hash-ref (rel-index r) (car key) '()) (hash-keys (rel-tuples r))))
-
-;; → hash pred → rel. `facts`: list of (pred . values).
-(define (eval-datalog facts rules #:max-rounds [max-rounds 500])
-  (define rels (make-hasheq))
-  (define (rel-of p) (hash-ref! rels p make-rel))
-  (for ([f facts]) (rel-add! (rel-of (car f)) (cdr f)))
-  (let round ([n 0])
-    (when (> n max-rounds) (fail! 'rules-diverge "rules did not reach a fixpoint" #:code 3))
-    (define changed? #f)
-    (for ([r rules])
-      (define subs
-        (let loop ([body (rule-body r)] [subs (list (hasheq))])
-          (if (null? body) subs
-              (let* ([lit (car body)] [rl (rel-of (car lit))])
-                (loop (cdr body)
-                      (for*/list ([s subs] [tuple (candidates rl (cdr lit) s)] [s2 (in-value (unify (cdr lit) tuple s))] #:when s2) s2))))))
-      (for ([s subs])
-        (define tuple (for/list ([t (cdr (rule-head r))]) (if (var? t) (hash-ref s (cdr t)) t)))
-        (when (rel-add! (rel-of (car (rule-head r))) tuple) (set! changed? #t))))
-    (when changed? (round (add1 n))))
-  rels)
-
-;; Whole program from text → hasheq pred → list of tuples (each a list of values), sorted. For tests and tools.
-(define (run-datalog text [source "program"])
-  (define-values (facts rules _q) (parse-rules text source))
-  (define rels (eval-datalog facts rules))
-  (for/hasheq ([(p r) (in-hash rels)])
-    (values p (sort (hash-keys (rel-tuples r)) string<? #:key (λ (t) (format "~s" t))))))
-
-(define (tuples-of rels pred) (let ([r (hash-ref rels pred #f)]) (if r (hash-keys (rel-tuples r)) '())))
+;; The Datalog evaluator itself (parse-rules/eval-datalog/run-datalog/tuples-of/rule) now lives in
+;; datalog.rkt (T64), so entries.rkt can share it without requiring this whole module (architecture
+;; rules) back - re-provided here unchanged so existing callers/tests of THIS module keep working.
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Facts from Racket sources
@@ -140,46 +49,8 @@
             [else (loop (cdr cs) (cons (regexp-quote (string (car cs))) acc))])))
   (pregexp (string-append "^" body "$")))
 
-;; Static requires of one file (no expansion: requires produced by macros are invisible).
-;; → list of (spec-string-or-symbol . line), spec is a relative path string, or a collection symbol/list
-(define (extract-requires text source)
-  (define-values (forms lang _t) (read-racket-source text #:source source))
-  (define out '())
-  (define (add! spec line) (set! out (cons (cons spec line) out)))
-  (define (handle-spec s)                          ; a syntax object
-    (define d (syntax-e s))
-    (define line (syntax-line s))
-    (cond
-      [(string? d) (add! d line)]
-      [(symbol? d) (add! d line)]
-      [(and (pair? d) (symbol? (syntax-e (car d))))
-       (define head (syntax-e (car d)))
-       (define args (or (syntax->list s) '()))
-       (case head
-         [(only-in except-in rename-in prefix-in all-except-out for-syntax for-template for-meta only-meta-in)
-          (define target (if (eq? head 'prefix-in) (and (>= (length args) 3) (caddr args)) (and (>= (length args) 2) (cadr args))))
-          (when (and (memq head '(for-syntax for-template for-meta)) (pair? (cdr args)))
-            (for-each handle-spec (if (eq? head 'for-meta) (cddr args) (cdr args))))
-          (when (and target (not (memq head '(for-syntax for-template for-meta)))) (handle-spec target))]
-         [(file) (when (and (= (length args) 2) (string? (syntax-e (cadr args)))) (add! (syntax-e (cadr args)) line))]
-         [(submod) (when (and (>= (length args) 2))
-                     (define base (syntax-e (cadr args)))
-                     ;; (submod "." x) and (submod ".." x) name a submodule of this file or its parent: no new file
-                     (cond [(string? base) (unless (member base '("." "..")) (add! base line))]
-                           [(symbol? base) (add! base line)]))]
-         [(lib) (when (and (= (length args) 2) (string? (syntax-e (cadr args)))) (add! (string->symbol (syntax-e (cadr args))) line))]
-         [(for-label) (void)]
-         [else (void)])]
-      [else (void)]))
-  (let walk ([fs forms])
-    (for ([f fs])
-      (define l (syntax->list f))
-      (when (and l (pair? l) (symbol? (syntax-e (car l))))
-        (case (syntax-e (car l))
-          [(require) (for-each handle-spec (cdr l))]
-          [(module module* module+) (walk (if (eq? (syntax-e (car l)) 'module+) (cddr l) (if (>= (length l) 3) (cdddr l) '())))]
-          [(begin) (walk (cdr l))]))))
-  (reverse out))
+;; `extract-requires` (Racket's static require scanner) now lives in rkt-extract.rkt (T60), imported
+;; above and re-provided here unchanged so existing callers/tests of this module keep working.
 
 (define ignored-dirs '("compiled" ".git" ".steer" "node_modules" "dist" "build" ".claude" "samples"))
 
@@ -189,30 +60,49 @@
           (path->string (find-relative-path (simplify-path root) (simplify-path f))))
         string<?))
 
+;; module-facts builds the ONE shared graph (T59's link-facts, over T60's rkt-extract) and projects
+;; module/requires/uses/layer from it, rather than re-implementing require resolution here. `needed`
+;; (a list of predicate symbols, or #f for "everything") lets a caller skip materialising `uses` —
+;; the one predicate that costs real extra work beyond what building the graph already did — when no
+;; loaded rule or prelude references it; `steer rules facts` always passes #f so its counts are complete.
 ;; → (values facts edge-lines) ; edge-lines: hash (A . B) → line of the require in A
-(define (module-facts root layers)
+(define (module-facts root layers [needed #f])
   (define files (project-files root))
-  (define file-set (for/hash ([f files]) (values f #t)))
+  (define want? (λ (p) (or (not needed) (memq p needed))))
+  (define fs-list
+    (for/list ([f files])
+      (with-handlers ([exn:fail? (λ (e) (file-facts f 'racket '() '() '() #f ""))])
+        (rkt-extract (file->string (build-path root f)) f))))
+  (define g (link-facts fs-list #:root root #:resolve-import rkt-resolve-import))
+  (define requires-facts
+    (for/list ([e (graph-edges g)] #:when (eq? (gedge-kind e) 'imports))
+      (list 'requires (gedge-from e) (gedge-to e))))
   (define edge-lines (make-hash))
+  (for* ([ff fs-list] [im (file-facts-imports ff)])
+    (define f (file-facts-path ff))
+    (define targets (rkt-resolve-import 'racket (import-spec im) f root files))
+    (when (pair? targets) (hash-ref! edge-lines (cons f (car targets)) (import-line im))))
+  (define uses-facts
+    (if (want? 'uses)
+        (for*/list ([ff fs-list] [im (file-facts-imports ff)]
+                    #:when (null? (rkt-resolve-import 'racket (import-spec im) (file-facts-path ff) root files)))
+          (list 'uses (file-facts-path ff) (import-spec im)))
+        '()))
   (define facts
     (append
      (for/list ([f files]) (list 'module f))
      (for*/list ([f files] [l layers] #:when (regexp-match? (cdr l) f)) (list 'layer f (car l)))
-     (append*
-      (for/list ([f files])
-        (define reqs (with-handlers ([exn:fail? (λ (e) '())]) (extract-requires (file->string (build-path root f)) f)))
-        (define dir (let-values ([(d _n _x) (split-path (build-path root f))]) d))
-        (for/list ([r reqs])
-          (define spec (car r))
-          (cond
-            [(string? spec)
-             (define target (path->string (find-relative-path (simplify-path root) (simplify-path (build-path dir spec)))))
-             (cond [(hash-ref file-set target #f)
-                    (hash-ref! edge-lines (cons f target) (cdr r))
-                    (list 'requires f target)]
-                   [else (list 'uses f spec)])]
-            [else (list 'uses f (format "~a" spec))]))))))
+     requires-facts uses-facts))
   (values (remove-duplicates facts) edge-lines))
+
+;; which predicate symbols a set of parsed user-rules (+ queries) actually reference, union'd with
+;; the always-on builtins module-facts must compute regardless (module/requires/layer feed `reach`
+;; and every layer rule even when the user's own rules never say their names).
+(define (referenced-predicates user-rules queries)
+  (remove-duplicates
+   (append '(module requires layer)
+           (append* (for/list ([r user-rules]) (cons (car (rule-head r)) (map car (rule-body r)))))
+           (map car queries))))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Checking
@@ -220,7 +110,7 @@
 (define prelude-rules
   (let-values ([(f r q) (parse-rules "reach(A, B) :- requires(A, B).\nreach(A, C) :- requires(A, B), reach(B, C).\n" "prelude")]) r))
 
-(define builtin-preds '(module requires uses layer reach violation))
+(define builtin-preds '(module requires uses layer reach violation dead reachable))
 
 ;; shortest require path from a to b over `requires` edges, as a list of files (BFS), or #f
 (define (shortest-path edges a b)
@@ -234,12 +124,26 @@
            (if hit (reverse hit)
                (loop next (for/fold ([s seen]) ([p next]) (hash-set s (car p) #t))))])))
 
+;; T65: a user rule may promote `dead(S)` to a `violation` (an architecture rule that treats
+;; unreachable code in a given layer as an error, say). `dead`/`reachable` are computed - across
+;; every language's own graph (entries.rkt/reach.rkt), not just Racket's module-facts one - only when
+;; a loaded rule actually references either predicate, same "only what's needed" principle `uses`
+;; already follows; the one-time cost of a second, multi-language project extraction is opt-in.
+(define (reach-facts-if-needed root rules-text needed)
+  (if (or (memq 'dead needed) (memq 'reachable needed))
+      (let-values ([(g parent ids by) (project-reachability root #:rules-text rules-text)])
+        (append (for/list ([id (reachable-ids parent)]) (list 'reachable id))
+                (for/list ([n (dead-nodes g parent)]) (list 'dead (gnode-id n)))))
+      '()))
+
 ;; → (values findings info); info: hasheq counts
 (define (check-rules root rules-text source)
   (define layers (parse-layer-directives rules-text))
   (define-values (user-facts user-rules queries) (parse-rules rules-text source))
-  (define-values (code-facts edge-lines) (module-facts root layers))
-  (define rels (eval-datalog (append code-facts user-facts) (append prelude-rules user-rules)))
+  (define needed (referenced-predicates user-rules queries))
+  (define-values (code-facts edge-lines) (module-facts root layers needed))
+  (define reach-facts (reach-facts-if-needed root rules-text needed))
+  (define rels (eval-datalog (append code-facts reach-facts user-facts) (append prelude-rules user-rules)))
   (define edges (for/list ([t (tuples-of rels 'requires)]) (cons (car t) (cadr t))))
   (define known (remove-duplicates (append builtin-preds (map car user-facts) (map (λ (r) (car (rule-head r))) user-rules))))
   (define unknown
@@ -287,8 +191,8 @@ EX
 (define (default-rules-path root) (build-path root ".steer" "rules.dl"))
 
 (define (cmd-rules argv)
-  (define-values (pos o) (parse-args "rules" argv '(("--rules" one)) #:min 1 #:max 1
-                                     #:usage "steer rules check|facts|init [--rules FILE]"))
+  (define-values (pos o) (parse-args "rules" argv '(("--rules" one)) #:min 1 #:max 2
+                                     #:usage "steer rules check|facts|entries|dead|reach SYM|init [--rules FILE]"))
   (define root (find-root))
   (define rules-path (if (opt-ref o 'rules) (path->complete-path (opt-ref o 'rules)) (default-rules-path root)))
   (define (load-rules)
@@ -317,4 +221,76 @@ EX
      (make-reply "rules"
                  (string-join (for/list ([(k v) (in-hash counts)]) (format "~a: ~a" k v)) "\n")
                  (for/hasheq ([(k v) (in-hash counts)]) (values k v)))]
-    [else (fail! 'usage (format "unknown rules action ~a" (car pos)) #:hint "check | facts | init")]))
+    ;; T64: entries come from every active language's own entry-prelude (a gate's Datalog rules over
+    ;; the shared graph's generic facts) plus the two engine-level rules every language gets for free
+    ;; (an explicit `steer: entry` marker, an implicit-name like Python's `__init__` or C#'s `Main`),
+    ;; plus anything the SAME rules.dl this repo already uses for architecture checks adds via its own
+    ;; entry(...) rules - one shared evaluator, not a Racket-only require-graph extractor.
+    [("entries")
+     (define user-text (if (file-exists? rules-path) (file->string rules-path) ""))
+     (define-values (ids admitted-by) (entry-facts root #:rules-text user-text))
+     (define lines (for/list ([id ids]) (format "~a  (~a)" id (string-join (sort (entry-admitted-by admitted-by id) string<?) ", "))))
+     (make-reply "rules" (string-join lines "\n")
+                 (hasheq 'count (length ids)
+                         'entries (for/list ([id ids]) (hasheq 'id id 'by (sort (entry-admitted-by admitted-by id) string<?))))
+                 #:findings (for/list ([id ids])
+                              (finding 'info 'entry (format "~a (~a)" id (string-join (sort (entry-admitted-by admitted-by id) string<?) ", "))
+                                       #:file (car (string-split id "#")))))]
+    ;; T65: dead(S) - a symbol no entry's forward walk (calls/refs/inherits/implements/imports/
+    ;; decorates/a constructor's own class/overrides-backwards) ever reaches. Capped and root-cause-
+    ;; folded: a module with NO reachable symbol at all is one finding, not one per symbol in it: a
+    ;; whole unreachable file is one root cause, and burying it under every symbol it happens to
+    ;; define obscures that. Each finding names both ways to mark something live: an explicit
+    ;; `steer: entry` (Racket: `;; steer: entry`, Python: `# steer: entry`, C#: `// steer: entry`)
+    ;; comment, or an `entry(...)` fact/rule of your own in .steer/rules.dl.
+    [("dead")
+     (define user-text (if (file-exists? rules-path) (file->string rules-path) ""))
+     (define-values (g parent ids admitted-by) (project-reachability root #:rules-text user-text))
+     (define dead (dead-nodes g parent))
+     (define dead-paths (remove-duplicates (map gnode-path dead)))
+     (define by-path (for/hash ([p dead-paths]) (values p (filter (λ (n) (equal? (gnode-path n) p)) dead))))
+     (define module-total (for/hash ([p dead-paths]) (values p (length (graph-nodes-in g p)))))
+     ;; a module folds into one finding when EVERY one of its own symbols (not just the dead ones) is dead
+     (define fold? (λ (p) (= (length (hash-ref by-path p)) (sub1 (hash-ref module-total p)))))  ; -1: the module node itself
+     (define fix-text "mark it live with an explicit `steer: entry` comment above it, or add an `entry(...)` fact/rule to .steer/rules.dl")
+     (define cap 50)
+     (define items
+       (append
+        (for/list ([p dead-paths] #:when (fold? p)) (cons 'module p))
+        (for*/list ([p dead-paths] #:unless (fold? p) [n (hash-ref by-path p)]) (cons 'symbol n))))
+     (define shown (take items (min cap (length items))))
+     (define findings
+       (for/list ([it shown])
+         (if (eq? (car it) 'module)
+             (finding 'warning 'dead-module (format "~a: no symbol in this file is reachable from any entry point (~a)" (cdr it) fix-text) #:file (cdr it))
+             (finding 'warning 'dead-symbol (format "~a: unreachable from any entry point (~a)" (gnode-id (cdr it)) fix-text)
+                      #:file (gnode-path (cdr it)) #:line (gnode-line (cdr it))))))
+     (define by-lang (for/fold ([h (hasheq)]) ([n dead]) (hash-update h (gnode-lang n) add1 0)))
+     (make-reply "rules"
+                 (format "~a dead symbol~a~a" (length dead) (plural (length dead))
+                         (if (> (length items) cap) (format " (showing ~a of ~a findings)" cap (length items)) ""))
+                 (hasheq 'dead-count (length dead) 'finding-count (length items) 'shown (length shown)
+                         'by-language (for/hasheq ([(k v) (in-hash by-lang)]) (values k v)))
+                 #:ok? (null? dead) #:findings findings)]
+    ;; T65: what reaches SYM (each entry that reaches it, with its own shortest path), and what SYM
+    ;; itself reaches (treating it as if it were an entry) - SYM is a graph id exactly as `steer rules
+    ;; entries`/`dead` print it ("path#qualname", or "path" for a module-level entry).
+    [("reach")
+     (when (< (length pos) 2) (fail! 'usage "steer rules reach SYM" #:hint "SYM is a graph id, e.g. `src/app.py#main` - see `steer rules entries`"))
+     (define sym (cadr pos))
+     (define user-text (if (file-exists? rules-path) (file->string rules-path) ""))
+     (define-values (g parent ids admitted-by) (project-reachability root #:rules-text user-text))
+     (unless (graph-node g sym) (fail! 'not-found (format "no symbol ~a in the graph" sym) #:hint "see `steer rules entries` or `steer rules dead` for valid ids"))
+     (define via (for/list ([e ids] #:when (path-to (reach-info g (list e)) sym)) (cons e (path-to (reach-info g (list e)) sym))))
+     (define (fmt-path p) (string-join (map (λ (hop) (car hop)) p) " → "))
+     (define forward (remove* (list sym) (hash-keys (reach-info g (list sym)))))
+     (define lines
+       (append
+        (if (null? via)
+            (list (format "~a is not reached from any entry point (dead)" sym))
+            (for/list ([v via]) (format "reached from ~a (~a): ~a" (car v) (string-join (sort (entry-admitted-by admitted-by (car v)) string<?) ", ") (fmt-path (cdr v)))))
+        (list (format "~a reaches ~a other symbol~a" sym (length forward) (plural (length forward))))))
+     (make-reply "rules" (string-join lines "\n")
+                 (hasheq 'symbol sym 'reached-by (for/list ([v via]) (hasheq 'entry (car v) 'path (map car (cdr v))))
+                         'reaches (sort forward string<?)))]
+    [else (fail! 'usage (format "unknown rules action ~a" (car pos)) #:hint "check | facts | entries | dead | reach SYM | init")]))

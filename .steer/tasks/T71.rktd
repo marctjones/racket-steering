@@ -1,0 +1,18 @@
+((id "T71")
+ (title "Vision store: north star + ranked priorities, event-logged like every other mutation")
+ (status open)
+ (priority 1)
+ (goal
+  "A new .steer/vision.rktd holding a short north-star string (rarely changes) and a ranked list of priority entries, each an id, text and optional one-line rationale. `steer vision set --northstar S` and `steer vision set --priority ID:TEXT[:RATIONALE] [--rank N]` write it; every change appends a diff (old value -> new value) plus a timestamp to the existing .steer/events.rktd log, the same append-only mechanism task edits already use - so `since N` and a future `steer vision log` both see it for free, no new log format. `steer doctor` covers the new file for corruption the same way it covers task files.")
+ (after ())
+ (checks ("raco test tests/vision-store-test.rkt"))
+ (anchors
+  (((hash "dfdf56f6d614") (ref "steer/store.rkt#init-store!"))
+   ((hash "5c357488aa14") (ref "steer/store.rkt#with-store-lock"))))
+ (touches ())
+ (tags ("vision"))
+ (claimed-by #f)
+ (github ((digest "97b20ce27a13") (kind issue) (number 28)))
+ (created "2026-09-27T18:12:49Z")
+ (updated "2026-09-27T18:14:04Z")
+ (log ()))

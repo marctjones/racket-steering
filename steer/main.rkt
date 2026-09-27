@@ -58,6 +58,21 @@ EOF
 EOF
   )
 
+;; T69: `rules`/`api --entries`/`dead`/`reach` are all one shared graph (XL3), across every language
+;; above - "exact"/"declared"/"name-match" are the SAME confidence tags for every one of them, not a
+;; per-command vocabulary. Kept separate from language-coverage-table (a different set of rows would
+;; make that table's syntax/anchor/done columns harder to scan) but stated once here, cited the same
+;; way by both `rules` and `api`'s own help text (T52's pattern extended, not forked).
+(define graph-coverage-table #<<EOF
+| language | same-file calls | cross-file calls | invisible (never a graph edge at all) |
+|---|---|---|---|
+| Racket (.rkt) | exact | declared, via a resolved `require` (relative path or a project-rooted collection spec) | a third-party struct-like macro's generated bindings (e.g. `define-object-type`) |
+| Python (.py/.pyi) | exact | declared, via a resolved `import`/`from...import`; otherwise name-match | a function/class used only as a VALUE - assigned to a variable, `functools.singledispatch` dispatch, a returned closure, a bare attribute/property read |
+| C# (.cs) | exact | name-match only (no dotnet SDK, no namespace index: a `using` almost never resolves to a specific file) | an attribute class used only via `[AttrName]` syntax; a bare field/property read |
+| any language | - | - | anything not written as a call (`f(...)`, `obj.f(...)`, `new T(...)`) - this graph never claims to see a value or attribute reference, only calls |
+EOF
+  )
+
 (define syntax-language-details (string-append language-coverage-table "\n\n"
   "Python and C# need no external tool (python3's own compiler; a Racket-native C# scanner). A file type\n"
   "with no gate is reported `skipped`, not `ok`: never assume a green result covers a language not listed."))
@@ -69,6 +84,20 @@ EOF
 (define done-language-details (string-append language-coverage-table "\n\n"
   "The failing-test detail (test id, file:line, message) only appears for a runner steer recognises;\n"
   "anything else falls back to the check's raw output tail, unchanged from before this table existed."))
+(define rules-language-details (string-append graph-coverage-table "\n\n"
+  "`dead`/`reach` and `violation`'s own `reach(A,B)` are all built on this same graph: a `dead(S)` finding\n"
+  "means \"no call was found\", never \"this is unused\" - see the `invisible` column above before deleting\n"
+  "anything it flags. Mark a symbol reachable that this graph cannot see on its own with an explicit\n"
+  "`;; steer: entry` / `# steer: entry` / `// steer: entry` comment right above it, or your own\n"
+  "`entry(\"path#qualname\").` fact (or rule) in `.steer/rules.dl` - `steer rules entries` lists every\n"
+  "entry point found and which rule admitted it."))
+(define api-language-details (string-append graph-coverage-table "\n\n"
+  "`api snapshot --entries`/`diff --entries` (lock v2) work the same way across all three languages,\n"
+  "reading each one's own real signature text through the shared graph; C# cannot yet tell an added\n"
+  "REQUIRED parameter from an added OPTIONAL one (no default-value tracking), so an added C# parameter\n"
+  "is always classified breaking. The original `api snapshot MODULE...` (lock v1, no `--entries`) is a\n"
+  "different, older route: Racket dynamically loads and instantiates the module, Python reads `__all__`/\n"
+  "leading-underscore via the same static ast this graph uses - there is no v1 C# route."))
 
 (define commands
   (list
@@ -98,14 +127,17 @@ EOF
    (cmd "refresh" cmd-refresh "steer refresh ID... | --all" "accept the current code as the new anchor baseline after reviewing")
    (cmd "syntax" cmd-syntax "steer syntax FILE... [--fix]" "structural check: reader/parser error plus a verified repair; --fix applies it" syntax-language-details)
    (cmd "dup" cmd-dup "steer dup [PATH...] [--min-size N] [--loose]" "Racket-only clone detection: same code modulo local renaming")
-   (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE.rkt...]" "Racket-only public API lock: exports, arity, contracts; diff classifies breaks")
+   (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE...] | ... --entries"
+        "public API lock across Racket/Python/C#: exports/entries, signatures; diff classifies breaks (entry-removed/-demoted, param and arity changes)"
+        api-language-details)
    (cmd "doc" cmd-doc "steer doc exists|sig ID [MODULE] | search WORD... | exports MODULE"
         "Racket documentation lookup: does this name exist, its documented signature, what a module provides")
    (cmd "spec" cmd-spec "steer spec check|render FILE|-  [--lax]"
         "acceptance criteria in a controlled form (EARS): parse, lint vagueness with a fix, print the canonical sentences"
         spec-details)
-   (cmd "rules" cmd-rules "steer rules check|facts|init [--rules FILE]"
-        "architecture rules over the require graph, written as Datalog (layers, forbidden dependencies); reports the require path")
+   (cmd "rules" cmd-rules "steer rules check|facts|entries|dead|reach SYM|init [--rules FILE]"
+        "the shared code graph across Racket/Python/C#, as Datalog: architecture rules, entry points, dead-symbol findings, and what reaches/is reached by a symbol"
+        rules-language-details)
    (cmd "failures" cmd-failures "steer failures [--since ISO-DATE] [--who AGENT] [--class CLASS] [--by class|kind|tool|agent]"
         "what actually failed when agents used steer, by class; the largest class says what to build next")
    (cmd "doctor" cmd-doctor "steer doctor [--against GIT-REF] [--fix]"
