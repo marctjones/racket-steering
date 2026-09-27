@@ -17,8 +17,8 @@
   (check-true (procedure? (gate-find-anchor g)) (format "~a: find-anchor is required" (gate-name g)))
   (check-true (procedure? (gate-list-names g)) (format "~a: list-names is required" (gate-name g)))
   (for ([acc (list gate-extract gate-resolve-import gate-entry-prelude gate-implicit-names gate-dynamic-calls?)])
-    (check-true (or (not (acc g)) (procedure? (acc g)) (boolean? (acc g)))
-                (format "~a: optional slot is #f, a procedure, or a boolean, never a wrong value" (gate-name g)))))
+    (check-true (or (not (acc g)) (procedure? (acc g)) (boolean? (acc g)) (string? (acc g)) (list? (acc g)))
+                (format "~a: optional slot is #f, a procedure, a boolean, a string (entry-prelude) or a list (implicit-names), never a wrong value" (gate-name g)))))
 
 (check-equal? (sort (map gate-name gates) symbol<?) '(csharp python racket))
 

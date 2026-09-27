@@ -19,7 +19,7 @@
 (require racket/list racket/string racket/match racket/file)
 (provide (struct-out def) (struct-out ref) (struct-out import) (struct-out file-facts)
          (struct-out gnode) (struct-out gedge) (struct-out graph)
-         module-id link-facts
+         module-id symbol-id link-facts default-resolve-import
          graph-node graph-nodes-in graph-edges-from graph-edges-to graph-stats-for
          write-graph read-graph)
 

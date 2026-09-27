@@ -34,20 +34,61 @@
 (struct gate (name exts unit check find-anchor list-names
               extract resolve-import entry-prelude implicit-names dynamic-calls?))
 
+;; entry-prelude (T64): Datalog rules run before the user's own, over the generic base/helper facts
+;; entries.rkt builds (module/symbol/in_module/name/kind/decorated/member_of/base_of/exported, plus
+;; the 9 Racket-computed helpers test_module/test_name/console_script/package_init/controller_base/
+;; public_api/api_module/root_module/has_statements). `explicit_entry` (the `steer: entry` marker) and
+;; `implicit_name` (below) are handled by ONE engine-level rule each, not repeated per language.
+;; implicit-names: bare names the LANGUAGE itself calls without a visible call-ref anywhere in source
+;; (a runtime hook, a dunder method, an implicit Main) - always entries, language-blind to the engine.
+
+;; every rule is scoped with `lang(_, "...")` on at least one variable that reaches every other
+;; variable in the rule (directly or via in_module/member_of) - the generic helpers (public_api,
+;; root_module, test_name, ...) are language-blind by design, so without this a language's prelude
+;; would just as happily match another language's symbols (found running this for real on this
+;; repo's own mixed Racket/Python/C# tree: Racket top-level defines were showing up "admitted by
+;; python", since nothing separated the fact bases - recorded via `steer note T64`).
+(define racket-entry-prelude #<<DL
+entry(S) :- test_name(S), in_module(S, M), test_module(M), lang(M, "racket").
+entry(S) :- console_script(S), lang(S, "racket").
+entry(M) :- root_module(M), has_statements(M), lang(M, "racket").
+DL
+  )
+(define racket-implicit-names '("main"))
+
+(define python-entry-prelude #<<DL
+entry(S) :- test_name(S), in_module(S, M), test_module(M), lang(M, "python").
+entry(S) :- console_script(S), lang(S, "python").
+entry(M) :- package_init(M), lang(M, "python").
+entry(S) :- public_api(S), in_module(S, M), root_module(M), lang(M, "python").
+DL
+  )
+(define python-implicit-names '("__init__" "__new__" "__enter__" "__exit__" "__call__" "main"))
+
+(define csharp-entry-prelude #<<DL
+entry(S) :- test_name(S), decorated(S, "Fact"), lang(S, "csharp").
+entry(S) :- test_name(S), decorated(S, "Test"), lang(S, "csharp").
+entry(S) :- test_name(S), decorated(S, "TestMethod"), lang(S, "csharp").
+entry(S) :- console_script(S), lang(S, "csharp").
+entry(S) :- member_of(S, C), controller_base(C), lang(S, "csharp").
+DL
+  )
+(define csharp-implicit-names '("Main" "Dispose" "Equals" "GetHashCode" "ToString"))
+
 (define racket-gate
   (gate 'racket '(".rkt" ".rktl" ".ss" ".scm" ".rkts") "form" check-source
         racket-find-anchor racket-list-names
-        rkt-extract rkt-resolve-import #f #f #f))
+        rkt-extract rkt-resolve-import racket-entry-prelude racket-implicit-names #f))
 
 (define python-gate
   (gate 'python '(".py" ".pyi") "statement" python-gate-check
         python-find-anchor python-list-names
-        py-extract py-resolve-import #f #f #t))
+        py-extract py-resolve-import python-entry-prelude python-implicit-names #t))
 
 (define csharp-gate
   (gate 'csharp '(".cs") "declaration" cs-gate-check
         cs-find-anchor cs-list-names
-        cs-extract cs-resolve-import #f #f #t))
+        cs-extract cs-resolve-import csharp-entry-prelude csharp-implicit-names #t))
 
 ;; Add languages here.
 (define gates (list racket-gate python-gate csharp-gate))
