@@ -401,3 +401,5 @@
 (401 "2026-09-27T18:34:37Z" "claude" add "T72" "Module-scoped decorates/calls edges bypass reach.rkt's constructor-only defines restriction (notes/16 SS9, mechanism B)")
 (402 "2026-09-27T18:41:52Z" "claude" renumber "T77" "was T71 (collided with origin/main)")
 (403 "2026-09-27T18:41:52Z" "claude" renumber "T78" "was T72 (collided with origin/main)")
+(404 "2026-09-27T19:25:53Z" "claude" edit "T11" "--priority")
+(405 "2026-09-27T19:25:53Z" "claude" note "T11" "Promoted to p1: notes/07's T9 baseline run (C0 23%, C1 29%, C2-lite/steer-syntax 23% - zero measured lift from steer's own tool at n=65/28, underpowered but real) found the largest remaining failure class is unbound-identifier resolution, and T13 (A2 binding/arity checker) is the evidence-backed next tool - blocked only on this task. Building more analysis tooling ahead of T11/T13 would repeat the pattern notes/04 warns against (build before measuring).")

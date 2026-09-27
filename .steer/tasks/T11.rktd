@@ -1,7 +1,7 @@
 ((id "T11")
  (title "C4 sandboxed executor: racket/sandbox + OS isolation option, structured results")
  (status open)
- (priority 2)
+ (priority 1)
  (goal
   "Foundation for A2/A3 and for hardening `steer api`. Time/memory limits, no network, fs restricted to project (read) + temp (write).")
  (after ())
@@ -11,5 +11,11 @@
  (tags ("tool"))
  (claimed-by #f)
  (created "2026-09-26T06:14:34Z")
- (updated "2026-09-26T06:14:34Z")
- (log ()))
+ (updated "2026-09-27T19:25:53Z")
+ (log
+  (((agent "claude")
+    (kind note)
+    (seq 405)
+    (text
+     "Promoted to p1: notes/07's T9 baseline run (C0 23%, C1 29%, C2-lite/steer-syntax 23% - zero measured lift from steer's own tool at n=65/28, underpowered but real) found the largest remaining failure class is unbound-identifier resolution, and T13 (A2 binding/arity checker) is the evidence-backed next tool - blocked only on this task. Building more analysis tooling ahead of T11/T13 would repeat the pattern notes/04 warns against (build before measuring).")
+    (ts "2026-09-27T19:25:53Z")))))
