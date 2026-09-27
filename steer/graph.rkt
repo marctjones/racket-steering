@@ -104,7 +104,9 @@
   (define by-id (for/hasheq ([n nodes]) (values (string->symbol (gnode-id n)) n)))
   (define (node-by-id id) (hash-ref by-id (string->symbol id) #f))
   ;; defs local to one file, by qualname and by bare (rightmost segment) name
-  (define file->defs (for/hasheq ([f facts]) (values (file-facts-path f) (file-facts-defs f))))
+  ;; string-keyed: for/hash (equal?-based), not for/hasheq — paths are not guaranteed eq? across
+  ;; construction (file-facts literals) and lookup (freshly-built strings from resolve-import et al).
+  (define file->defs (for/hash ([f facts]) (values (file-facts-path f) (file-facts-defs f))))
   (define (defs-of path) (hash-ref file->defs path '()))
   (define (find-in-file path qualname)
     (findf (λ (d) (equal? (def-qualname d) qualname)) (defs-of path)))
@@ -136,7 +138,7 @@
   (define (imports-of f)
     (for/list ([im (file-facts-imports f)])
       (cons im (or (resolve-import (file-facts-lang f) (import-spec im) (file-facts-path f) root all-paths) '()))))
-  (define file->import-targets (for/hasheq ([f facts]) (values (file-facts-path f) (imports-of f))))
+  (define file->import-targets (for/hash ([f facts]) (values (file-facts-path f) (imports-of f))))
   (define (imported-paths-of path) (remove-duplicates (append-map cdr (hash-ref file->import-targets path '()))))
   (define (find-in-imports path qualname-or-bare)
     (for*/first ([ip (imported-paths-of path)]

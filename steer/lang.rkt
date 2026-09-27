@@ -19,7 +19,7 @@
 ;; kind/shadowed, or found?=#f/problem/candidates). `list-names` takes (text) and returns every
 ;; definable name, used only for did-you-mean (never raises).
 (require racket/list racket/string racket/path
-         "common.rkt" "syntax-check.rkt" "srcread.rkt" "python.rkt" "csharp.rkt")
+         "common.rkt" "syntax-check.rkt" "srcread.rkt" "python.rkt" "csharp.rkt" "rkt-extract.rkt")
 (provide (struct-out gate) gates gate-for-path lang-check lang-find-anchor lang-list-names
          supported-extensions)
 
@@ -37,7 +37,7 @@
 (define racket-gate
   (gate 'racket '(".rkt" ".rktl" ".ss" ".scm" ".rkts") "form" check-source
         racket-find-anchor racket-list-names
-        #f #f #f #f #f))
+        rkt-extract rkt-resolve-import #f #f #f))
 
 (define python-gate
   (gate 'python '(".py" ".pyi") "statement" python-gate-check

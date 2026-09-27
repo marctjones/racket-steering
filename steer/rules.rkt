@@ -18,7 +18,7 @@
 ;; evaluation of positive rules is small.
 (require racket/list racket/string racket/file racket/path racket/port
          datalog/parse datalog/ast
-         "common.rkt" "store.rkt" "srcread.rkt")
+         "common.rkt" "store.rkt" "srcread.rkt" (only-in "rkt-extract.rkt" extract-requires))
 (provide cmd-rules extract-requires glob->regexp run-datalog check-rules)
 
 ;; ---------------------------------------------------------------------------------------------
@@ -140,46 +140,8 @@
             [else (loop (cdr cs) (cons (regexp-quote (string (car cs))) acc))])))
   (pregexp (string-append "^" body "$")))
 
-;; Static requires of one file (no expansion: requires produced by macros are invisible).
-;; → list of (spec-string-or-symbol . line), spec is a relative path string, or a collection symbol/list
-(define (extract-requires text source)
-  (define-values (forms lang _t) (read-racket-source text #:source source))
-  (define out '())
-  (define (add! spec line) (set! out (cons (cons spec line) out)))
-  (define (handle-spec s)                          ; a syntax object
-    (define d (syntax-e s))
-    (define line (syntax-line s))
-    (cond
-      [(string? d) (add! d line)]
-      [(symbol? d) (add! d line)]
-      [(and (pair? d) (symbol? (syntax-e (car d))))
-       (define head (syntax-e (car d)))
-       (define args (or (syntax->list s) '()))
-       (case head
-         [(only-in except-in rename-in prefix-in all-except-out for-syntax for-template for-meta only-meta-in)
-          (define target (if (eq? head 'prefix-in) (and (>= (length args) 3) (caddr args)) (and (>= (length args) 2) (cadr args))))
-          (when (and (memq head '(for-syntax for-template for-meta)) (pair? (cdr args)))
-            (for-each handle-spec (if (eq? head 'for-meta) (cddr args) (cdr args))))
-          (when (and target (not (memq head '(for-syntax for-template for-meta)))) (handle-spec target))]
-         [(file) (when (and (= (length args) 2) (string? (syntax-e (cadr args)))) (add! (syntax-e (cadr args)) line))]
-         [(submod) (when (and (>= (length args) 2))
-                     (define base (syntax-e (cadr args)))
-                     ;; (submod "." x) and (submod ".." x) name a submodule of this file or its parent: no new file
-                     (cond [(string? base) (unless (member base '("." "..")) (add! base line))]
-                           [(symbol? base) (add! base line)]))]
-         [(lib) (when (and (= (length args) 2) (string? (syntax-e (cadr args)))) (add! (string->symbol (syntax-e (cadr args))) line))]
-         [(for-label) (void)]
-         [else (void)])]
-      [else (void)]))
-  (let walk ([fs forms])
-    (for ([f fs])
-      (define l (syntax->list f))
-      (when (and l (pair? l) (symbol? (syntax-e (car l))))
-        (case (syntax-e (car l))
-          [(require) (for-each handle-spec (cdr l))]
-          [(module module* module+) (walk (if (eq? (syntax-e (car l)) 'module+) (cddr l) (if (>= (length l) 3) (cdddr l) '())))]
-          [(begin) (walk (cdr l))]))))
-  (reverse out))
+;; `extract-requires` (Racket's static require scanner) now lives in rkt-extract.rkt (T60), imported
+;; above and re-provided here unchanged so existing callers/tests of this module keep working.
 
 (define ignored-dirs '("compiled" ".git" ".steer" "node_modules" "dist" "build" ".claude" "samples"))
 
