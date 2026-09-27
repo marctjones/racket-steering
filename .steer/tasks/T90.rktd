@@ -1,0 +1,17 @@
+((id "T90")
+ (title
+  "H10 · Tier-3: dead-code-as-retry-feedback (reuses the ALREADY-BUILT T65 detector, zero new extraction)")
+ (status open)
+ (priority 2)
+ (goal
+  "The cheapest possible new eval, structurally identical to T79's C2-doc: for C0 failures where\n`steer rules dead` finds unreachable code IN the failing attempt itself (a real, if narrower, signal\nthan complexity/magic-numbers - dead code inside your own failing solution is often a sign of confused\nlogic), show that as retry feedback instead of the raw error. This is the one H-series technique that\nmaps cleanly onto the C1/C2-lite/C2-doc 'does this diagnose the failure' pattern - the others below do\nNOT, and are scoped with a different experiment design on purpose.")
+ (after ("T80" "T65"))
+ (checks ())
+ (anchors ())
+ (touches ())
+ (tags ("quality"))
+ (claimed-by #f)
+ (github ((digest "5a8f20d155ec") (kind issue) (number 39)))
+ (created "2026-09-27T21:47:52Z")
+ (updated "2026-09-27T21:48:27Z")
+ (log ()))

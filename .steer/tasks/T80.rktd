@@ -1,0 +1,17 @@
+((id "T80")
+ (title
+  "F9 · code-quality/structural metrics: free wins first, then measure what actually moves steering")
+ (status open)
+ (priority 2)
+ (goal
+  "Umbrella: add deterministic, language-agnostic-in-concept code-quality findings (function\nlength, parameter count, cyclomatic/cognitive complexity, magic numbers, global/mutable state) to the\nshared graph the same way F3/F4/F5 already do, then measure - per notes/04's decision rule, not by\nassumption - which of them actually change LLM pass rate or code quality when surfaced as steering\nfeedback, alone and combined. See notes/02 catalog section H for the tool/literature survey this is\nbuilt from (SonarQube/lizard/radon/CodeQL/Joern; McCabe 1976, CK 1994, Campbell 2018 cognitive\ncomplexity, Fowler's smell catalog).")
+ (after ())
+ (checks ())
+ (anchors ())
+ (touches ())
+ (tags ("quality"))
+ (claimed-by #f)
+ (github ((digest "25cebed299c4") (kind issue) (number 33)))
+ (created "2026-09-27T21:47:52Z")
+ (updated "2026-09-27T21:48:23Z")
+ (log ()))

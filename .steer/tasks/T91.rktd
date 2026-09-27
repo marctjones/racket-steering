@@ -1,0 +1,17 @@
+((id "T91")
+ (title
+  "H11 · Tier-3: quality-delta on PASSING solutions (a different outcome variable than pass/fail)")
+ (status open)
+ (priority 2)
+ (goal
+  "H3-H6 are not failure diagnostics - a magic-number finding does not explain a wrong answer or\na compile error, so testing them as C2-style retry feedback would be measuring the wrong hypothesis.\nThe question they actually answer is 'does steering improve code QUALITY, not just correctness': take\nC0 completions that already PASS, show H9's findings as a follow-up turn ('this passes but has\ncyclomatic complexity 18 and 3 magic numbers, clean it up'), and score two things on the rewrite - did\nit still pass (correctness must not regress), and did the quality numbers actually improve. Needs a new\nscoring dimension in eval-local.rkt/retry-eval.rkt, not reuse of the existing pass/fail-only scorer.")
+ (after ("T89"))
+ (checks ())
+ (anchors ())
+ (touches ())
+ (tags ("quality"))
+ (claimed-by #f)
+ (github ((digest "b71a36919deb") (kind issue) (number 44)))
+ (created "2026-09-27T21:47:52Z")
+ (updated "2026-09-27T21:48:30Z")
+ (log ()))
