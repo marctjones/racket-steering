@@ -1,6 +1,6 @@
 ((id "T67")
  (title "Entry shapes in the API lock, generic across languages: api snapshot --entries, lock v2")
- (status active)
+ (status done)
  (priority 2)
  (goal
   "Static shapes from the one shared graph for every entry symbol, in whatever shape each extractor emits (Racket formals + contract-out text via rkt-extract, Python signatures via T54/py-extract, C# paramtypes/return/generic arity via cs-extract - all read through the same graph-ir shape field, not three separate lock formats). Lock v2 records the route; read-lock accepts v1/v2 and refuses cross-route diffs. api-diff reuses its existing kinds plus entry-removed/entry-demoted (no longer public / no longer admitted by an entry rule) and arity-mismatch, located at in-project call sites whose positional count no longer fits - all computed by the same generic classifier for every language. This is what T56 (the bespoke Roslyn/PublicApiAnalyzers baseline) becomes optional against: shape-lock gives a no-SDK C# API lock through the generic contract; T56 is now a precision upgrade for a project that already has PublicApiAnalyzers files or a local .NET SDK, not a required path. Verified on all three fixture languages with one breaking and one compatible change each.")
@@ -14,5 +14,17 @@
  (tags ("graph"))
  (claimed-by "xl3")
  (created "2026-09-27T08:50:21Z")
- (updated "2026-09-27T11:01:39Z")
- (log ()))
+ (updated "2026-09-27T11:18:18Z")
+ (log
+  (((agent "xl3")
+    (kind note)
+    (seq 300)
+    (text
+     "C# entry shapes cannot distinguish an added REQUIRED parameter from an added OPTIONAL (default-valued) one: cs-extract's shape reads scan-members' paramtypes, which is TYPES ONLY - T50's own param-type-text deliberately strips a parameter's default value (for anchor purposes), and extending that now would touch tested XL1 anchor code out of scope here. Every added C# parameter is therefore classified breaking, conservatively and correctly for the common case, but a real C# optional parameter added to a public method will show as a false breaking finding. Documented in notes/16 as a known limitation, not silently rounded away. Also generalized python-shape-diff's per-parameter comparison to key by (name, occurrence-index) rather than bare name: found via this exact case, since C#'s param list has no names at all (only types, e.g. 'int, int'), so two same-typed parameters collided on one hash key and a removed one was silently absorbed into 'nothing changed' instead of being reported.")
+    (ts "2026-09-27T11:18:15Z"))
+   ((agent "xl3")
+    (checks (((cmd "raco test tests/entry-shape-test.rkt") (secs 3.0))))
+    (kind done)
+    (seq 301)
+    (ts "2026-09-27T11:18:18Z")
+    (verified #t)))))

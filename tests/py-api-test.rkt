@@ -71,7 +71,7 @@
 (let ([fs (diff "def f(x)" "def f(x, y=1)")])
   (check-equal? (length fs) 1)
   (check-equal? (hash-ref (car fs) 'severity) 'info)
-  (check-regexp-match #rx"y added \\(compatible\\)" (hash-ref (car fs) 'message)))
+  (check-regexp-match #rx"y=1 added \\(compatible\\)" (hash-ref (car fs) 'message)))
 (let ([fs (diff "def f(x)" "def f(x, y)")])
   (check-equal? (length fs) 1)
   (check-equal? (hash-ref (car fs) 'severity) 'error)
@@ -108,7 +108,7 @@
    "    def greet(self):\n        return self.name\n"))
 (let-values ([(c o) (steer dir "api" "diff")])
   (check-equal? c 0 "an added optional parameter is compatible, not breaking")
-  (check-regexp-match #rx"z added \\(compatible\\)" o))
+  (check-regexp-match #rx"z=0 added \\(compatible\\)" o))
 
 ;; mixed: a Racket module and a Python module snapshotted together, each read by its own path
 (write-file! "m.rkt" "#lang racket/base\n(provide f)\n(define (f x) x)\n")

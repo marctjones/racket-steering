@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Code-facing commands: `syntax` (A1), `dup` (F5), `api` (F3), and the post-edit hook check.
 (require racket/list racket/string racket/file
-         "common.rkt" "store.rkt" "failures.rkt" "srcread.rkt" "syntax-check.rkt" "lang.rkt" "dup.rkt" "api.rkt")
+         "common.rkt" "store.rkt" "failures.rkt" "srcread.rkt" "syntax-check.rkt" "lang.rkt" "dup.rkt" "api.rkt" "entries.rkt")
 (provide cmd-syntax cmd-dup cmd-api post-edit-problems)
 
 (define (project-root) (or (find-root #:required? #f) (simplify-path (current-directory))))
@@ -123,9 +123,62 @@
 ;; ---------------------------------------------------------------------------------------------
 ;; api
 
+;; T67: --entries switches every action to lock v2 (a project-wide entry-shape snapshot, from the
+;; shared graph across every language, rather than a caller-named list of Racket/Python modules) - a
+;; DIFFERENT route through the same lock path, so it never shares a lock file's data with the plain
+;; (v1) actions above: each refuses cleanly (read-lock/read-lock-v2 return #f for the other version)
+;; rather than misreading the other's shape.
+(define (cmd-api-entries argv)
+  (define-values (pos o) (parse-args "api" argv '(("--timeout" one) ("--entries" bool)) #:min 1 #:max 1
+                                     #:usage "steer api snapshot|diff|show --entries"))
+  (define root (find-root))
+  (define action (car pos))
+  (define rules-path (build-path root ".steer" "rules.dl"))
+  (define rules-text (if (file-exists? rules-path) (file->string rules-path) ""))
+  (case action
+    [("snapshot")
+     (define entries (entry-shapes root #:rules-text rules-text))
+     (with-store-lock root (λ () (write-lock-v2! root entries) (append-event! root 'api-snapshot #f "--entries")))
+     (make-reply "api" (format "~a entry point~a across every language" (hash-count entries) (plural (hash-count entries)))
+                 (hasheq 'count (hash-count entries))
+                 #:next (list "commit .steer/api.lock" "steer api diff --entries"))]
+    [("diff")
+     (define lock (read-lock-v2 root))
+     (unless lock
+       (fail! 'no-lock (if (read-lock root) "the lock is a v1 (module) snapshot, not --entries" "no .steer/api.lock yet")
+              #:hint "steer api snapshot --entries"))
+     (define-values (g fs-list) (build-project-graph root))
+     (define new-entries (entry-shapes root #:rules-text rules-text))
+     (define fs (entry-shape-diff g lock new-entries))
+     (define (count sev) (length (filter (λ (x) (eq? (hash-ref x 'severity) sev)) fs)))
+     (make-reply "api"
+                 (format "entry-shape diff over ~a entr~a: ~a breaking/error, ~a to review, ~a compatible"
+                         (hash-count lock) (if (= (hash-count lock) 1) "y" "ies") (count 'error) (count 'warning) (count 'info))
+                 (hasheq 'breaking (count 'error) 'review (count 'warning) 'compatible (count 'info))
+                 #:ok? (= 0 (count 'error)) #:findings fs
+                 #:next (if (null? fs) '() (list "if the changes are intended: steer api snapshot --entries")))]
+    [("show")
+     (define lock (read-lock-v2 root))
+     (unless lock
+       (fail! 'no-lock (if (read-lock root) "the lock is a v1 (module) snapshot, not --entries" "no .steer/api.lock yet")
+              #:hint "steer api snapshot --entries"))
+     (make-reply "api"
+                 (string-join
+                  (for/list ([id (sort (hash-keys lock) string<?)])
+                    (define e (hash-ref lock id))
+                    (format "~a  [~a via ~a]  ~a" id (car e) (string-join (cadr e) ", ") (caddr e)))
+                  "\n")
+                 (hasheq 'count (hash-count lock)))]
+    [else (fail! 'usage (format "unknown api action ~a" action) #:hint "snapshot | diff | show")]))
+
 (define (cmd-api argv)
+  (cond
+   [(member "--entries" argv) (cmd-api-entries (remove "--entries" argv))]
+   [else (cmd-api-modules argv)]))
+
+(define (cmd-api-modules argv)
   (define-values (pos o) (parse-args "api" argv '(("--timeout" one)) #:min 1
-                                     #:usage "steer api snapshot [MODULE...] | steer api diff [MODULE...] | steer api show [MODULE]"))
+                                     #:usage "steer api snapshot [MODULE...] | steer api diff [MODULE...] | steer api show [MODULE] | ... --entries"))
   (define root (find-root))
   (define action (car pos))
   (define given (for/list ([m (cdr pos)])
