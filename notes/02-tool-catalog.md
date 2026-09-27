@@ -147,6 +147,39 @@ Language-independent in value; the tracker is implemented first as the `steer` C
   Proposed by a peer project's session (a local embedded-LLM Racket IDE, via cross-session message) hitting this
   gap in practice, not from this project's own backlog review.
 
+## H. Code quality and structural metrics (proposed 2026-09-27, tracked as T80-T95, GitHub #33-48)
+
+Survey of prior art before building: SonarQube/CodeClimate (multi-language quality scoring), lizard/radon (generic
+and Python-specific complexity), ArchUnit/import-linter (F4's own comparison point), CodeQL/Joern (semantic
+dataflow graphs). Literature: McCabe 1976 (cyclomatic complexity), Halstead 1977, Chidamber & Kemerer 1994 (CK
+OO metrics), the Maintainability Index, Campbell 2018 (cognitive complexity, SonarSource), Fowler's smell catalog.
+
+### H1-H2 · free wins (S, value M) - no new extraction
+- Function length (`def-line`/`def-end` already exist per symbol, all three languages) and parameter count
+  (`def-shape` already holds the rendered signature) are graph.rkt findings away, not new extractor work.
+
+### H3-H6 · new per-language extraction (M each, value M/unknown)
+- Cyclomatic complexity (branch-token counting per def, McCabe's threshold >10 warn), cognitive complexity
+  (H3's counts weighted by nesting depth instead of flattened, Campbell 2018 - catches what cyclomatic
+  complexity misses: nested vs sequential branches scoring the same otherwise), magic numbers/literals, and
+  global/mutable state (the hardest to define generically - "global" means something different per language,
+  scoped to one language first rather than assumed uniform).
+
+### H7-H8 · native vs external tool (S each, value: the DECISION, not just the numbers)
+- Wrap `lizard` (cross-language) and `radon` (Python MI) as cross-checks against H1/H3's native numbers; decide
+  keep-native or adopt-external per notes/12/16's own "measure against real code, write the decision down" habit.
+
+### H9 · `steer rules quality` (S, value H) - the unified report
+- One command, findings with source locations (not bare scores), same shape as `steer rules dead`.
+
+### H10-H12 · measuring impact on steering, per-technique with the RIGHT experiment design (value: unknown, that's the point)
+- H10 reuses the ALREADY-BUILT T65 dead-code detector as C2-style retry feedback (the one H-series technique that
+  actually diagnoses a failure, same shape as T79's C2-doc). H3-H6 are NOT failure diagnostics - a magic-number
+  finding doesn't explain a wrong answer, so testing them as retry feedback would measure the wrong hypothesis.
+  H11 tests them as a quality-improving follow-up on PASSING solutions instead (a different outcome variable:
+  did quality improve without correctness regressing); H12 tests them as up-front prompt guidance instead of
+  reactive repair. H13 applies notes/04's decision rule to each before H14 tests combining whichever cleared it.
+
 ## Build order suggestion
 
 E1 → A1 → B1 → A2 → A3 (first slice, run evaluation) → C4 → then choose among C1/C3 (agentic) or A4/A6 (quality)
