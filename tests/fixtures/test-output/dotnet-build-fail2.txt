@@ -1,0 +1,13 @@
+/work/repo/src/GuardClauses/GuardAgainstNullExtensions.cs(98,9): error CS0103: The name 'GuardXyz' does not exist in the current context [/work/repo/src/GuardClauses/GuardClauses.csproj::TargetFramework=net8.0]
+/work/repo/src/GuardClauses/GuardAgainstNullExtensions.cs(105,16): warning CS8603: Possible null reference return. [/work/repo/src/GuardClauses/GuardClauses.csproj::TargetFramework=net8.0]
+/work/repo/src/GuardClauses/GuardAgainstNullExtensions.cs(105,9): warning CS8777: Parameter 'input' must have a non-null value when exiting. [/work/repo/src/GuardClauses/GuardClauses.csproj::TargetFramework=net8.0]
+
+Build FAILED.
+
+/work/repo/src/GuardClauses/GuardAgainstNullExtensions.cs(105,16): warning CS8603: Possible null reference return. [/work/repo/src/GuardClauses/GuardClauses.csproj::TargetFramework=net8.0]
+/work/repo/src/GuardClauses/GuardAgainstNullExtensions.cs(105,9): warning CS8777: Parameter 'input' must have a non-null value when exiting. [/work/repo/src/GuardClauses/GuardClauses.csproj::TargetFramework=net8.0]
+/work/repo/src/GuardClauses/GuardAgainstNullExtensions.cs(98,9): error CS0103: The name 'GuardXyz' does not exist in the current context [/work/repo/src/GuardClauses/GuardClauses.csproj::TargetFramework=net8.0]
+    2 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:00.48

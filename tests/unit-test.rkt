@@ -89,9 +89,11 @@
 (check-true (hash-ref (resolve-anchor dir "o.rkt#||") 'found?))
 (check-true (hash-ref (resolve-anchor dir (string-append "o.rkt#" (symbol->anchor-name '|x y|))) 'found?))
 
-(put! "m.py" "import os\n\ndef load(p):\n    with open(p) as f:\n        return f.read()\n\ndef other():\n    pass\n")
-(let ([r (resolve-anchor dir "m.py#load")])
-  (check-equal? (list (hash-ref r 'line) (hash-ref r 'end) (hash-ref r 'method)) '(3 5 heuristic)))
+;; Python now resolves exactly via the ast (T49); .py is no longer a heuristic-path example.
+;; Ruby exercises the heuristic path here instead.
+(put! "m.rb" "require 'set'\n\ndef load(p)\n  File.open(p) do |f|\n    return f.read\n  end\nend\n\ndef other\nend\n")
+(let ([r (resolve-anchor dir "m.rb#load")])
+  (check-equal? (list (hash-ref r 'line) (hash-ref r 'end) (hash-ref r 'method)) '(3 7 heuristic)))
 (put! "m.js" "export async function fetchAll(url) {\n  return 1;\n}\nconst x = 2;\n")
 (let ([r (resolve-anchor dir "m.js#fetchAll")])
   (check-equal? (list (hash-ref r 'line) (hash-ref r 'end)) '(1 3)))

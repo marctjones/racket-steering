@@ -1,7 +1,7 @@
 ((id "T50")
  (title
   "C# anchors that see generics, partial classes, properties, attributes, Allman bodies and overloads")
- (status open)
+ (status done)
  (priority 2)
  (goal
   "Replace the indentation block with a brace-balanced block from the declaration line, include leading attributes, accept `Name<T>(`, properties and `=>` members, `partial`/file-scoped namespaces, and disambiguate overloads as Name/arity or Name(type,type); measured against the GuardClauses shapes from note 12.")
@@ -12,8 +12,20 @@
    ((hash "a85b0b46f7b3") (ref "steer/anchors.rkt#block-end"))))
  (touches ())
  (tags ("cross-language"))
- (claimed-by #f)
+ (claimed-by "xl1")
  (github ((digest "f2af74a717d4") (kind issue) (number 20)))
  (created "2026-09-26T08:04:49Z")
- (updated "2026-09-26T08:05:18Z")
- (log ()))
+ (updated "2026-09-27T05:16:13Z")
+ (log
+  (((agent "xl1")
+    (kind note)
+    (seq 168)
+    (text
+     "csharp.rkt: cs-find-anchor over cs-lex's tokens; a container stack (namespace excluded from qualname; enum excluded from member-scanning, its comma-list syntax isn't the member grammar); dispatch by what follows the name: ( =method/ctor/operator/destructor, {/=> =property/indexer, ;/,/= =field(s). Overloads and same-named members across partial classes disambiguate by /arity or (type,type); a bare ambiguous name refuses with the candidate list rather than guessing. Bugs found only by testing against the real fixtures: (1) parse-params consumed the outer ')' into the last parameter's tokens, corrupting its type text and its emptiness check; (2) 'this' in the modifier list made the scanner skip straight over real indexers; (3) an auto-property's trailing '= expr;' initializer wasn't included in the span, so the initializer's own tokens (e.g. 'new Guard()') got rescanned as a phantom third constructor; (4) namespaces were never tracked, so nothing inside one was ever found. All fixed; verified against every member note 12 named (generics, attributes, decorators via #region, partial classes, file-scoped namespace, indexer, operator, destructor, event, record, generic struct) plus formatting/comment insensitivity of the hash.")
+    (ts "2026-09-27T05:16:01Z"))
+   ((agent "xl1")
+    (checks (((cmd "raco test tests/cs-anchors-test.rkt") (secs 0.5))))
+    (kind done)
+    (seq 169)
+    (ts "2026-09-27T05:16:13Z")
+    (verified #t)))))

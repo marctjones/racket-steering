@@ -3,7 +3,7 @@
 ;; a bracket scanner adds the *likely* location, because "expected `)` to close `(` at line 10"
 ;; points at the opener, while the missing paren is usually where the next top-level form begins.
 (require racket/list racket/string "common.rkt" "srcread.rkt")
-(provide check-source apply-edit code-end-col)
+(provide check-source apply-edit code-end-col edit-text)
 
 ;; → (values findings form-count lang)
 (define (check-source text file)

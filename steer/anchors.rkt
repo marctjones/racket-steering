@@ -3,19 +3,46 @@
 ;; baseline hash taken when the plan was written. If the code there changes, the plan may be stale.
 ;; Racket files: exact definition lookup, hash over the datum (formatting-insensitive).
 ;; Other files: a keyword/indentation heuristic, clearly labelled as such.
-(require racket/list racket/string "srcread.rkt")
-(provide parse-anchor resolve-anchor anchor-state baseline-anchor symbol->anchor-name)
+(require racket/list racket/string "srcread.rkt" "python.rkt" "csharp.rkt"
+         (only-in "common.rkt" closest))
+(provide parse-anchor resolve-anchor anchor-state baseline-anchor symbol->anchor-name anchor-names-in-file)
 
 (define (parse-anchor s)
   (define m (regexp-match #rx"^([^#]+)(?:#(.+))?$" s))
   (unless m (raise-argument-error 'parse-anchor "path or path#name" s))
   (values (cadr m) (caddr m)))
 
-;; → hasheq: ref found? method line end hash problem
+;; Every definable name in `p` (Racket, Python, C#; '() for a language without a name lister, and
+;; for a file that fails to parse). Used only for did-you-mean; never raises.
+(define (anchor-names-in-file p)
+  (with-handlers ([(λ (e) #t) (λ (e) '())])
+    (define text (file->text p))
+    (cond
+      [(racket-file? p)
+       (define-values (forms _lang _t) (read-racket-source text))
+       (map (λ (d) (symbol->anchor-name (car d))) (find-definitions forms))]
+      [(python-file? p) (python-list-names text)]
+      [(csharp-file? p) (cs-list-names text)]
+      [else '()])))
+
+;; T51: a task pointing past an EXISTING file at a name that file does not define is very likely a
+;; typo or the wrong qualification, not "the task will create this" (that reading only makes sense
+;; when the file itself does not exist yet). Distinguishing the two, with a suggestion, is the point:
+;; a wrong name should not sit silently mislabelled "pending" until someone happens to look at it.
+(define (miss-with-suggestion ref problem method existing-candidates p name)
+  (define candidates
+    (if (pair? existing-candidates) existing-candidates
+        (and name (file-exists? p) (closest name (anchor-names-in-file p) #:max 5))))
+  (hasheq 'ref ref 'found? #f 'method method
+          'problem (if (pair? candidates) (format "~a (closest: ~a)" problem (string-join candidates ", ")) problem)
+          'file-exists? (and (file-exists? p) #t)
+          'suggestions (or candidates '())))
+
+;; → hasheq: ref found? method line end hash problem file-exists? suggestions
 (define (resolve-anchor root ref)
   (define-values (rel name) (parse-anchor ref))
   (define p (build-path root rel))
-  (define (miss problem [method 'none]) (hasheq 'ref ref 'found? #f 'problem problem 'method method))
+  (define (miss problem [method 'none] [candidates '()]) (miss-with-suggestion ref problem method candidates p name))
   (cond
     [(not (file-exists? p)) (miss "file not found")]
     [else
@@ -39,7 +66,32 @@
                      'end (position->line text (+ (syntax-position f) (max 0 (sub1 (syntax-span f)))))
                      'hash (datum-hash f))]
             [else (miss (format "no definition of ~a" name) 'racket)]))]
+       ;; Python: exact resolution of any dotted qualification (Class.method) via the stdlib ast,
+       ;; instead of the indentation heuristic (which finds the wrong block on multi-line signatures
+       ;; and the wrong same-named definition on overloads: note 12).
+       [(python-file? p)
+        (define r (python-find-anchor text name))
+        (cond
+          [(hash-ref r 'found? #f)
+           (hasheq 'ref ref 'found? #t 'method 'python 'kind (hash-ref r 'kind) 'line (hash-ref r 'line) 'end (hash-ref r 'end)
+                   'hash (hash-ref r 'hash) 'shadowed (hash-ref r 'shadowed #f))]
+          ;; an ambiguity list (the name exists, just not uniquely) is a better suggestion than fuzzy
+          ;; matching against every name in the file, so it takes priority over the did-you-mean fallback
+          [else (miss (hash-ref r 'problem "not found") 'python (hash-ref r 'candidates '()))])]
+       ;; C#: exact resolution via a member scanner (generics, properties, indexers, operators,
+       ;; partial classes, Allman/K&R bodies), instead of the indentation heuristic. Overloads and
+       ;; same-named members across partial declarations need `Name/arity` or `Name(type,type)`.
+       [(csharp-file? p)
+        (define r (cs-find-anchor text name))
+        (cond
+          [(hash-ref r 'found? #f)
+           (hasheq 'ref ref 'found? #t 'method 'csharp 'kind (hash-ref r 'kind) 'line (hash-ref r 'line) 'end (hash-ref r 'end)
+                   'hash (hash-ref r 'hash) 'shadowed (hash-ref r 'shadowed #f))]
+          [else (miss (hash-ref r 'problem "not found") 'csharp (hash-ref r 'candidates '()))])]
        [else (heuristic text ref name)])]))
+
+(define (python-file? p) (regexp-match? #rx"[.]pyi?$" (path->string p)))
+(define (csharp-file? p) (regexp-match? #rx"[.]cs$" (path->string p)))
 
 (define (clip-msg e) (car (string-split (exn-message e) "\n")))
 
@@ -69,7 +121,7 @@
                     #:when (and (regexp-match? c-rx l) (not (regexp-match? bad-start l))))
           i)))
   (cond
-    [(not start) (hasheq 'ref ref 'found? #f 'method 'heuristic
+    [(not start) (hasheq 'ref ref 'found? #f 'method 'heuristic 'file-exists? #t 'suggestions '()
                          'problem (format "no definition line for ~a found" name))]
     [else
      (define end (block-end lines start))
