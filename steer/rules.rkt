@@ -18,8 +18,9 @@
 ;; evaluation of positive rules is small.
 (require racket/list racket/string racket/file racket/path racket/port
          datalog/parse datalog/ast
-         "common.rkt" "store.rkt" "srcread.rkt" (only-in "rkt-extract.rkt" extract-requires))
-(provide cmd-rules extract-requires glob->regexp run-datalog check-rules)
+         "common.rkt" "store.rkt" "srcread.rkt" "graph.rkt"
+         (only-in "rkt-extract.rkt" extract-requires rkt-extract rkt-resolve-import))
+(provide cmd-rules extract-requires glob->regexp run-datalog check-rules module-facts referenced-predicates)
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Datalog evaluation over the parsed AST (positive rules, naive bottom-up with a first-column index)
@@ -151,30 +152,49 @@
           (path->string (find-relative-path (simplify-path root) (simplify-path f))))
         string<?))
 
+;; module-facts builds the ONE shared graph (T59's link-facts, over T60's rkt-extract) and projects
+;; module/requires/uses/layer from it, rather than re-implementing require resolution here. `needed`
+;; (a list of predicate symbols, or #f for "everything") lets a caller skip materialising `uses` —
+;; the one predicate that costs real extra work beyond what building the graph already did — when no
+;; loaded rule or prelude references it; `steer rules facts` always passes #f so its counts are complete.
 ;; → (values facts edge-lines) ; edge-lines: hash (A . B) → line of the require in A
-(define (module-facts root layers)
+(define (module-facts root layers [needed #f])
   (define files (project-files root))
-  (define file-set (for/hash ([f files]) (values f #t)))
+  (define want? (λ (p) (or (not needed) (memq p needed))))
+  (define fs-list
+    (for/list ([f files])
+      (with-handlers ([exn:fail? (λ (e) (file-facts f 'racket '() '() '() #f ""))])
+        (rkt-extract (file->string (build-path root f)) f))))
+  (define g (link-facts fs-list #:root root #:resolve-import rkt-resolve-import))
+  (define requires-facts
+    (for/list ([e (graph-edges g)] #:when (eq? (gedge-kind e) 'imports))
+      (list 'requires (gedge-from e) (gedge-to e))))
   (define edge-lines (make-hash))
+  (for* ([ff fs-list] [im (file-facts-imports ff)])
+    (define f (file-facts-path ff))
+    (define targets (rkt-resolve-import 'racket (import-spec im) f root files))
+    (when (pair? targets) (hash-ref! edge-lines (cons f (car targets)) (import-line im))))
+  (define uses-facts
+    (if (want? 'uses)
+        (for*/list ([ff fs-list] [im (file-facts-imports ff)]
+                    #:when (null? (rkt-resolve-import 'racket (import-spec im) (file-facts-path ff) root files)))
+          (list 'uses (file-facts-path ff) (import-spec im)))
+        '()))
   (define facts
     (append
      (for/list ([f files]) (list 'module f))
      (for*/list ([f files] [l layers] #:when (regexp-match? (cdr l) f)) (list 'layer f (car l)))
-     (append*
-      (for/list ([f files])
-        (define reqs (with-handlers ([exn:fail? (λ (e) '())]) (extract-requires (file->string (build-path root f)) f)))
-        (define dir (let-values ([(d _n _x) (split-path (build-path root f))]) d))
-        (for/list ([r reqs])
-          (define spec (car r))
-          (cond
-            [(string? spec)
-             (define target (path->string (find-relative-path (simplify-path root) (simplify-path (build-path dir spec)))))
-             (cond [(hash-ref file-set target #f)
-                    (hash-ref! edge-lines (cons f target) (cdr r))
-                    (list 'requires f target)]
-                   [else (list 'uses f spec)])]
-            [else (list 'uses f (format "~a" spec))]))))))
+     requires-facts uses-facts))
   (values (remove-duplicates facts) edge-lines))
+
+;; which predicate symbols a set of parsed user-rules (+ queries) actually reference, union'd with
+;; the always-on builtins module-facts must compute regardless (module/requires/layer feed `reach`
+;; and every layer rule even when the user's own rules never say their names).
+(define (referenced-predicates user-rules queries)
+  (remove-duplicates
+   (append '(module requires layer)
+           (append* (for/list ([r user-rules]) (cons (car (rule-head r)) (map car (rule-body r)))))
+           (map car queries))))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Checking
@@ -200,7 +220,8 @@
 (define (check-rules root rules-text source)
   (define layers (parse-layer-directives rules-text))
   (define-values (user-facts user-rules queries) (parse-rules rules-text source))
-  (define-values (code-facts edge-lines) (module-facts root layers))
+  (define needed (referenced-predicates user-rules queries))
+  (define-values (code-facts edge-lines) (module-facts root layers needed))
   (define rels (eval-datalog (append code-facts user-facts) (append prelude-rules user-rules)))
   (define edges (for/list ([t (tuples-of rels 'requires)]) (cons (car t) (cadr t))))
   (define known (remove-duplicates (append builtin-preds (map car user-facts) (map (λ (r) (car (rule-head r))) user-rules))))
