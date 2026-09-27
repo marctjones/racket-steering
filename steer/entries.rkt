@@ -15,7 +15,7 @@
 (require racket/list racket/string racket/file racket/path
          "common.rkt" "store.rkt" "graph.rkt" "lang.rkt" "datalog.rkt")
 (provide project-files-multi build-project-graph base-facts helper-facts
-         entry-facts entry-admitted-by entry-id->display)
+         entry-facts entries-from-graph entry-admitted-by entry-id->display)
 
 ;; ---------------------------------------------------------------------------------------------
 ;; gathering: every file any gate can extract, across every language present in the project
@@ -137,6 +137,11 @@ DL
 ;; unaffected; recorded as a design note, not silently assumed away).
 (define (entry-facts root #:rules-text [user-rules-text ""])
   (define-values (g fs-list) (build-project-graph root))
+  (entries-from-graph g fs-list #:rules-text user-rules-text))
+
+;; Split out so a caller that ALSO needs the graph for something else (T65's reachability) builds it
+;; once and reuses it here, rather than extracting the whole project twice.
+(define (entries-from-graph g fs-list #:rules-text [user-rules-text ""])
   (define layers (with-handlers ([exn:fail? (λ (e) '())]) (parse-layer-directives-of user-rules-text)))
   (define base (append (base-facts g fs-list layers) (helper-facts g fs-list)))
   (define gates (active-gates fs-list))

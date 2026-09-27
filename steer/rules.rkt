@@ -17,7 +17,7 @@
 ;; package's runtime returned no answers for any query in this environment (probed), and bottom-up
 ;; evaluation of positive rules is small.
 (require racket/list racket/string racket/file racket/path racket/port
-         "common.rkt" "store.rkt" "srcread.rkt" "graph.rkt" "datalog.rkt" "entries.rkt"
+         "common.rkt" "store.rkt" "srcread.rkt" "graph.rkt" "datalog.rkt" "entries.rkt" "reach.rkt"
          (only-in "rkt-extract.rkt" extract-requires rkt-extract rkt-resolve-import))
 (provide cmd-rules extract-requires glob->regexp run-datalog check-rules module-facts referenced-predicates
          (all-from-out "datalog.rkt"))
@@ -110,7 +110,7 @@
 (define prelude-rules
   (let-values ([(f r q) (parse-rules "reach(A, B) :- requires(A, B).\nreach(A, C) :- requires(A, B), reach(B, C).\n" "prelude")]) r))
 
-(define builtin-preds '(module requires uses layer reach violation))
+(define builtin-preds '(module requires uses layer reach violation dead reachable))
 
 ;; shortest require path from a to b over `requires` edges, as a list of files (BFS), or #f
 (define (shortest-path edges a b)
@@ -124,13 +124,26 @@
            (if hit (reverse hit)
                (loop next (for/fold ([s seen]) ([p next]) (hash-set s (car p) #t))))])))
 
+;; T65: a user rule may promote `dead(S)` to a `violation` (an architecture rule that treats
+;; unreachable code in a given layer as an error, say). `dead`/`reachable` are computed - across
+;; every language's own graph (entries.rkt/reach.rkt), not just Racket's module-facts one - only when
+;; a loaded rule actually references either predicate, same "only what's needed" principle `uses`
+;; already follows; the one-time cost of a second, multi-language project extraction is opt-in.
+(define (reach-facts-if-needed root rules-text needed)
+  (if (or (memq 'dead needed) (memq 'reachable needed))
+      (let-values ([(g parent ids by) (project-reachability root #:rules-text rules-text)])
+        (append (for/list ([id (reachable-ids parent)]) (list 'reachable id))
+                (for/list ([n (dead-nodes g parent)]) (list 'dead (gnode-id n)))))
+      '()))
+
 ;; → (values findings info); info: hasheq counts
 (define (check-rules root rules-text source)
   (define layers (parse-layer-directives rules-text))
   (define-values (user-facts user-rules queries) (parse-rules rules-text source))
   (define needed (referenced-predicates user-rules queries))
   (define-values (code-facts edge-lines) (module-facts root layers needed))
-  (define rels (eval-datalog (append code-facts user-facts) (append prelude-rules user-rules)))
+  (define reach-facts (reach-facts-if-needed root rules-text needed))
+  (define rels (eval-datalog (append code-facts reach-facts user-facts) (append prelude-rules user-rules)))
   (define edges (for/list ([t (tuples-of rels 'requires)]) (cons (car t) (cadr t))))
   (define known (remove-duplicates (append builtin-preds (map car user-facts) (map (λ (r) (car (rule-head r))) user-rules))))
   (define unknown
@@ -178,8 +191,8 @@ EX
 (define (default-rules-path root) (build-path root ".steer" "rules.dl"))
 
 (define (cmd-rules argv)
-  (define-values (pos o) (parse-args "rules" argv '(("--rules" one)) #:min 1 #:max 1
-                                     #:usage "steer rules check|facts|entries|init [--rules FILE]"))
+  (define-values (pos o) (parse-args "rules" argv '(("--rules" one)) #:min 1 #:max 2
+                                     #:usage "steer rules check|facts|entries|dead|reach SYM|init [--rules FILE]"))
   (define root (find-root))
   (define rules-path (if (opt-ref o 'rules) (path->complete-path (opt-ref o 'rules)) (default-rules-path root)))
   (define (load-rules)
@@ -223,4 +236,61 @@ EX
                  #:findings (for/list ([id ids])
                               (finding 'info 'entry (format "~a (~a)" id (string-join (sort (entry-admitted-by admitted-by id) string<?) ", "))
                                        #:file (car (string-split id "#")))))]
-    [else (fail! 'usage (format "unknown rules action ~a" (car pos)) #:hint "check | facts | entries | init")]))
+    ;; T65: dead(S) - a symbol no entry's forward walk (calls/refs/inherits/implements/imports/
+    ;; decorates/a constructor's own class/overrides-backwards) ever reaches. Capped and root-cause-
+    ;; folded: a module with NO reachable symbol at all is one finding, not one per symbol in it: a
+    ;; whole unreachable file is one root cause, and burying it under every symbol it happens to
+    ;; define obscures that. Each finding names both ways to mark something live: an explicit
+    ;; `steer: entry` (Racket: `;; steer: entry`, Python: `# steer: entry`, C#: `// steer: entry`)
+    ;; comment, or an `entry(...)` fact/rule of your own in .steer/rules.dl.
+    [("dead")
+     (define user-text (if (file-exists? rules-path) (file->string rules-path) ""))
+     (define-values (g parent ids admitted-by) (project-reachability root #:rules-text user-text))
+     (define dead (dead-nodes g parent))
+     (define dead-paths (remove-duplicates (map gnode-path dead)))
+     (define by-path (for/hash ([p dead-paths]) (values p (filter (λ (n) (equal? (gnode-path n) p)) dead))))
+     (define module-total (for/hash ([p dead-paths]) (values p (length (graph-nodes-in g p)))))
+     ;; a module folds into one finding when EVERY one of its own symbols (not just the dead ones) is dead
+     (define fold? (λ (p) (= (length (hash-ref by-path p)) (sub1 (hash-ref module-total p)))))  ; -1: the module node itself
+     (define fix-text "mark it live with an explicit `steer: entry` comment above it, or add an `entry(...)` fact/rule to .steer/rules.dl")
+     (define cap 50)
+     (define items
+       (append
+        (for/list ([p dead-paths] #:when (fold? p)) (cons 'module p))
+        (for*/list ([p dead-paths] #:unless (fold? p) [n (hash-ref by-path p)]) (cons 'symbol n))))
+     (define shown (take items (min cap (length items))))
+     (define findings
+       (for/list ([it shown])
+         (if (eq? (car it) 'module)
+             (finding 'warning 'dead-module (format "~a: no symbol in this file is reachable from any entry point (~a)" (cdr it) fix-text) #:file (cdr it))
+             (finding 'warning 'dead-symbol (format "~a: unreachable from any entry point (~a)" (gnode-id (cdr it)) fix-text)
+                      #:file (gnode-path (cdr it)) #:line (gnode-line (cdr it))))))
+     (define by-lang (for/fold ([h (hasheq)]) ([n dead]) (hash-update h (gnode-lang n) add1 0)))
+     (make-reply "rules"
+                 (format "~a dead symbol~a~a" (length dead) (plural (length dead))
+                         (if (> (length items) cap) (format " (showing ~a of ~a findings)" cap (length items)) ""))
+                 (hasheq 'dead-count (length dead) 'finding-count (length items) 'shown (length shown)
+                         'by-language (for/hasheq ([(k v) (in-hash by-lang)]) (values k v)))
+                 #:ok? (null? dead) #:findings findings)]
+    ;; T65: what reaches SYM (each entry that reaches it, with its own shortest path), and what SYM
+    ;; itself reaches (treating it as if it were an entry) - SYM is a graph id exactly as `steer rules
+    ;; entries`/`dead` print it ("path#qualname", or "path" for a module-level entry).
+    [("reach")
+     (when (< (length pos) 2) (fail! 'usage "steer rules reach SYM" #:hint "SYM is a graph id, e.g. `src/app.py#main` - see `steer rules entries`"))
+     (define sym (cadr pos))
+     (define user-text (if (file-exists? rules-path) (file->string rules-path) ""))
+     (define-values (g parent ids admitted-by) (project-reachability root #:rules-text user-text))
+     (unless (graph-node g sym) (fail! 'not-found (format "no symbol ~a in the graph" sym) #:hint "see `steer rules entries` or `steer rules dead` for valid ids"))
+     (define via (for/list ([e ids] #:when (path-to (reach-info g (list e)) sym)) (cons e (path-to (reach-info g (list e)) sym))))
+     (define (fmt-path p) (string-join (map (λ (hop) (car hop)) p) " → "))
+     (define forward (remove* (list sym) (hash-keys (reach-info g (list sym)))))
+     (define lines
+       (append
+        (if (null? via)
+            (list (format "~a is not reached from any entry point (dead)" sym))
+            (for/list ([v via]) (format "reached from ~a (~a): ~a" (car v) (string-join (sort (entry-admitted-by admitted-by (car v)) string<?) ", ") (fmt-path (cdr v)))))
+        (list (format "~a reaches ~a other symbol~a" sym (length forward) (plural (length forward))))))
+     (make-reply "rules" (string-join lines "\n")
+                 (hasheq 'symbol sym 'reached-by (for/list ([v via]) (hasheq 'entry (car v) 'path (map car (cdr v))))
+                         'reaches (sort forward string<?)))]
+    [else (fail! 'usage (format "unknown rules action ~a" (car pos)) #:hint "check | facts | entries | dead | reach SYM | init")]))
