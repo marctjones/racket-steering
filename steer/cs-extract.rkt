@@ -177,8 +177,17 @@
          (define enclosing-name (last (string-split (or scope (cs-member-qualname m)) ".")))
          (define line (ctok-line (vector-ref tv (cs-member-start m))))
          (define endl (ctok-eline (vector-ref tv (cs-member-end m))))
-         (def (member-kind->def-kind m enclosing-name) (last (string-split (cs-member-qualname m) ".")) (cs-member-qualname m)
-              scope line endl (format "~a ~a" (cs-member-kind m) (cs-member-qualname m)) (tokens-hash tv (cs-member-start m) (cs-member-end m))
+         (define bare-name (last (string-split (cs-member-qualname m) ".")))
+         ;; T67: real paramtypes (scan-members already parses them for overload disambiguation, T50),
+         ;; comma-joined so this reads exactly like Python's/Racket's own flat shape text - not the
+         ;; placeholder "method Dog.Speak" this carried before shape-lock needed something real to diff.
+         (define callable? (member (cs-member-kind m) '("method" "constructor" "operator" "destructor" "indexer")))
+         (define shape
+           (if callable?
+               (format "~a(~a)" bare-name (string-join (cs-member-paramtypes m) ", "))
+               (format "~a" bare-name)))
+         (def (member-kind->def-kind m enclosing-name) bare-name (cs-member-qualname m)
+              scope line endl shape (tokens-hash tv (cs-member-start m) (cs-member-end m))
               '() '() (entry-here? line) #t)))
      (define member-refs
        (append*

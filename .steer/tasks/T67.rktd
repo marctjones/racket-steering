@@ -1,6 +1,6 @@
 ((id "T67")
  (title "Entry shapes in the API lock, generic across languages: api snapshot --entries, lock v2")
- (status open)
+ (status active)
  (priority 2)
  (goal
   "Static shapes from the one shared graph for every entry symbol, in whatever shape each extractor emits (Racket formals + contract-out text via rkt-extract, Python signatures via T54/py-extract, C# paramtypes/return/generic arity via cs-extract - all read through the same graph-ir shape field, not three separate lock formats). Lock v2 records the route; read-lock accepts v1/v2 and refuses cross-route diffs. api-diff reuses its existing kinds plus entry-removed/entry-demoted (no longer public / no longer admitted by an entry rule) and arity-mismatch, located at in-project call sites whose positional count no longer fits - all computed by the same generic classifier for every language. This is what T56 (the bespoke Roslyn/PublicApiAnalyzers baseline) becomes optional against: shape-lock gives a no-SDK C# API lock through the generic contract; T56 is now a precision upgrade for a project that already has PublicApiAnalyzers files or a local .NET SDK, not a required path. Verified on all three fixture languages with one breaking and one compatible change each.")
@@ -12,7 +12,7 @@
    ((hash "bb6bd0a7346c") (ref "steer/api.rkt#write-lock!"))))
  (touches ())
  (tags ("graph"))
- (claimed-by #f)
+ (claimed-by "xl3")
  (created "2026-09-27T08:50:21Z")
- (updated "2026-09-27T08:50:21Z")
+ (updated "2026-09-27T11:01:39Z")
  (log ()))

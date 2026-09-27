@@ -153,12 +153,31 @@
            (cond
              [(symbol? hv)
               (define nm (symbol->anchor-name hv))
-              (define formals (if (syntax? (car t)) (cdr (syntax-e target)) (cdr t)))
+              ;; T67: the real formals text ("f(x, y=1)"), not a placeholder - read via syntax->datum
+              ;; off `target` (the whole `(f x [y 1])` head), comma-joined so the SAME generic
+              ;; param-by-name shape-diff T54 built for Python's flat signature strings also works
+              ;; here (and for C#'s, which is already comma-separated). A curried define's shape
+              ;; reflects only its outermost formals - a known, minor simplification.
+              (define formals (with-handlers ([exn:fail? (λ (e) '())]) (cdr (syntax->datum target))))
               (add-def! (def 'function nm nm #f line (end-line l)
-                            (format "(~a ...)" nm) (datum-hash l) '() '() (entry-here? line) #t))
+                            (format "~a(~a)" nm (formals->shape-args formals)) (datum-hash l) '() '() (entry-here? line) #t))
               (for ([body (cddr-safe args)]) (scan-calls! body nm))]
              [(pair? hv) (loop hv)]
              [else (void)]))])))
+
+  ;; a formals list/rest-arg (dotted or a bare symbol), keyword args (`#:k k` / `#:k [k 1]` - TWO
+  ;; consecutive list elements, the keyword then its name, never one pair), and [name default]
+  ;; positional optionals → "x, y=1, k, *rest" - comma-joined, matching Python's/C#'s own flat shape.
+  (define (one x)
+    (cond [(symbol? x) (symbol->string x)]
+          [(and (pair? x) (pair? (cdr x))) (format "~a=~a" (car x) (cadr x))]
+          [else (format "~a" x)]))
+  (define (formals->shape-args formals)
+    (let loop ([f formals] [acc '()])
+      (cond [(null? f) (string-join (reverse acc) ", ")]
+            [(and (pair? f) (keyword? (car f)) (pair? (cdr f))) (loop (cddr f) (cons (one (cadr f)) acc))]
+            [(pair? f) (loop (cdr f) (cons (one (car f)) acc))]
+            [else (string-join (reverse (cons (format "*~a" f) acc)) ", ")])))
 
   (define (cddr-safe l) (if (and (pair? l) (pair? (cdr l))) (cddr l) '()))
   (define (end-line l) (syntax-line l))  ; forms don't carry a reliable multi-line end without a full span walk; T67 refines if needed
