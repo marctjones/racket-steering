@@ -3,9 +3,11 @@
 ;; runs in its own group so a timeout kills the whole tree. Only the tail of the output is kept,
 ;; because the first thing a model needs is the final error, not the whole log.
 (require racket/list racket/string racket/port)
-(provide run-check tail-text)
+(provide run-check tail-text keep-bytes)
 
-(define keep-bytes 65536)
+;; Kept in full (up to 1 MiB) so a parser can see the *first* failure of a long run, not just the tail;
+;; note 12 found dotnet test's first failures lost and file:line clipped when only a tail was kept.
+(define keep-bytes (* 1 1024 1024))
 
 (define (run-check cmd dir timeout-secs)
   (define start (current-inexact-milliseconds))
@@ -31,11 +33,13 @@
   (unless (sync/timeout 2 reader) (kill-thread reader))
   (close-input-port out)
   (define code (subprocess-status p))
+  (define text (bytes->string/utf-8 (unbox buf) #\?))
   (hasheq 'cmd cmd
           'ok (and finished? (eqv? code 0))
           'exit (if finished? code 'timeout)
           'secs (/ (round (/ (- (current-inexact-milliseconds) start) 100.0)) 10.0)
-          'tail (tail-text (bytes->string/utf-8 (unbox buf) #\?))))
+          'output text
+          'tail (tail-text text)))
 
 ;; Last lines, each clipped, within a byte budget.
 (define (tail-text s #:lines [max-lines 20] #:chars [max-chars 1500])

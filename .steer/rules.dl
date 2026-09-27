@@ -6,9 +6,13 @@
 %layer core     steer/srcread.rkt
 %layer core     steer/anchors.rkt
 %layer core     steer/checks.rkt
+%layer core     steer/testparse.rkt
 %layer core     steer/plan.rkt
 %layer core     steer/syntax-check.rkt
 %layer core     steer/dup.rkt
+%layer core     steer/lang.rkt
+%layer core     steer/python.rkt
+%layer core     steer/csharp.rkt
 %layer core     steer/api.rkt
 %layer core     steer/failures.rkt
 %layer core     steer/skills.rkt

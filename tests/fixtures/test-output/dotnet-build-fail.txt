@@ -1,0 +1,9 @@
+/work/repo/src/GuardClauses/GuardAgainstEmptyOrWhiteSpaceExtensions.cs(26,30): error CS1026: ) expected [/work/repo/src/GuardClauses/GuardClauses.csproj::TargetFramework=net8.0]
+
+Build FAILED.
+
+/work/repo/src/GuardClauses/GuardAgainstEmptyOrWhiteSpaceExtensions.cs(26,30): error CS1026: ) expected [/work/repo/src/GuardClauses/GuardClauses.csproj::TargetFramework=net8.0]
+    0 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:00.56
