@@ -3,10 +3,11 @@
 ;; over each cs-member's/cs-type's own token range (csharp.rkt's cs-lex/scan-members/scan-types do the
 ;; hard lexing and frame-tracking; nothing here re-parses C#) emitting calls (`M(`, `this.M(`, `base.M(`,
 ;; `Type.M(`, `new T(`) with arity, each type's base/interface list (from scan-types), attributes on
-;; BOTH types and members (from scan-types/scan-members - a 'decorates ref per usage, see
-;; attr-decorates-refs below, plus the metadata already fed into each def's own decorators field),
-;; `using` directives as imports, and has-statements?. No dotnet SDK is used or needed, same as the
-;; rest of this module's C# support.
+;; types, members AND individual parameters (from scan-types/scan-members/parse-params - a 'decorates
+;; ref per usage, see attr-decorates-refs below; type/member attrs also feed each def's own decorators
+;; metadata field, parameters have no def of their own so they contribute a ref only), `using`
+;; directives as imports, and has-statements?. No dotnet SDK is used or needed, same as the rest of
+;; this module's C# support.
 ;;
 ;; Known, deliberate scope cuts (recorded per the project's own convention of writing these down
 ;; rather than silently shipping a narrower thing than the tracked task describes):
@@ -60,19 +61,30 @@
 ;; T68 follow-up (measured on GuardClauses, notes/16 SS3): attribute names/def-decorators were tracked
 ;; as metadata but never emitted as a graph EDGE, so every attribute class (`NotNullAttribute`,
 ;; `CallerArgumentExpressionAttribute`, ...) used only via `[AttrName]` syntax was structurally
-;; unreachable - 211 of 212 "dead" findings in that measurement were exactly this. `[AttrName]` in
-;; source usually drops the class's own "Attribute" suffix (`[Obsolete]` for `class ObsoleteAttribute`),
-;; and which form is real can only be known once the whole project's defs are visible - not from this
-;; one file - so both the name as written and, when it lacks the suffix, the suffixed form are emitted
-;; as separate 'decorates refs; whichever one is not a real project symbol simply resolves to nothing
-;; (an ordinary external ref, same as any other unmatched call), so this stays entirely inside the
-;; extractor - no linker change, since the suffix convention is C#-specific, not a general graph rule.
-;; Scope matches Python's own decorator-ref convention (steer/python.rkt's self._decorator_refs): the
-;; ENCLOSING scope of the decorated def, not the def's own qualname, since applying an attribute is
-;; conceptually part of the enclosing declaration, not the decorated member itself.
+;; unreachable - 211 of 212 "dead" findings in a 20-symbol hand sample from that measurement LOOKED
+;; like exactly this (notes/16 SS8: reading the full dead list, not a 20-sample, most of those 211
+;; turned out to be genuinely unused vendored attribute classes, not resolution gaps - only a handful
+;; were real false positives, and this fix plus SS8's parameter-level one now resolves all of them).
+;; `[AttrName]` in source usually drops the class's own "Attribute" suffix (`[Obsolete]` for
+;; `class ObsoleteAttribute`), and which form is real can only be known once the whole project's defs
+;; are visible - not from this one file - so both the name as written and, when it lacks the suffix,
+;; the suffixed form are emitted as separate 'decorates refs; whichever one is not a real project
+;; symbol simply resolves to nothing (an ordinary external ref, same as any other unmatched call), so
+;; this stays entirely inside the extractor - no linker change, since the suffix convention is
+;; C#-specific, not a general graph rule. Scope matches Python's own decorator-ref convention
+;; (steer/python.rkt's self._decorator_refs): the ENCLOSING scope of the decorated def, not the def's
+;; own qualname, since applying an attribute is conceptually part of the enclosing declaration, not
+;; the decorated member itself.
+;; `names` is deduped first: T63 SS8's own follow-up (notes/16 SS8) feeds this the same attribute name
+;; once per PARAMETER it appears on (`[NotNull]` on three parameters of one method, say) - and, since
+;; this helper is shared, the same dedup also fixes a pre-existing inflation at the member/type tier
+;; (`[Theory] [InlineData(1)] [InlineData(2)] ...` stacks the same name repeatedly on one test method,
+;; common throughout GuardClauses' own test suite). Without this, every repeat emits its own pair of
+;; identical ref structs - inflating both the ref count feeding the resolution ratio and any dead-
+;; symbol sample, not a real new fact about the graph.
 (define (attr-decorates-refs names scope line)
   (append*
-   (for/list ([a names])
+   (for/list ([a (remove-duplicates names)])
      (if (string-suffix? a "Attribute")
          (list (ref 'decorates a #f scope #f line))
          (list (ref 'decorates a #f scope #f line)
@@ -245,6 +257,18 @@
         (for/list ([m members])
           (attr-decorates-refs (cs-member-attrs m) (enclosing-type-of (cs-member-qualname m))
                                 (ctok-line (vector-ref tv (cs-member-start m)))))))
+     ;; T63 SS8 follow-up: attributes written on individual PARAMETERS (`[CallerArgumentExpression]`,
+     ;; most JetBrains.Annotations.cs attributes - notes/16 SS7 found these, not member/type-level
+     ;; attrs, are the dominant real usage on a project like ardalis/GuardClauses). There is no
+     ;; parameter-level symbol in this graph to scope a ref to individually, so - same convention as
+     ;; member/type attrs above - the ref's scope is the decorated member's own ENCLOSING type, at the
+     ;; member's start line; cs-member-param-attrs is already the flat union across all of a member's
+     ;; parameters (steer/csharp.rkt's parse-params), so no per-parameter split is needed here either.
+     (define member-param-attr-refs
+       (append*
+        (for/list ([m members])
+          (attr-decorates-refs (cs-member-param-attrs m) (enclosing-type-of (cs-member-qualname m))
+                                (ctok-line (vector-ref tv (cs-member-start m)))))))
      ;; top-level refs: any token span NOT covered by a member's own [start,end] is scanned at module
      ;; scope (scope=#f) - a type's base-list call (`record Dog(int x) : Animal(x)`), a top-level
      ;; C# 9+ statement, anything outside a member body. Gaps, not "the whole file minus ranges" one
@@ -262,7 +286,7 @@
      ;; has-statements?: no C# type at all, but real tokens - the rare C# 9+ top-level-statements form
      (define has-stmt? (and (null? types) (pair? tokens)))
      (file-facts path 'csharp (append type-defs member-defs)
-                 (append member-refs top-refs type-attr-refs member-attr-refs)
+                 (append member-refs top-refs type-attr-refs member-attr-refs member-param-attr-refs)
                  imports has-stmt? (short-text-hash text))]))
 
 (define (tokens-hash tv start end)

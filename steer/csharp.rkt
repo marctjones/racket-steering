@@ -418,7 +418,11 @@
          scan-types (struct-out cs-type) scan-usings)
 
 (struct frame (kind name open-depth) #:transparent)   ; open-depth: brace depth while inside this frame
-(struct cs-member (qualname kind arity paramtypes attrs start end) #:transparent)  ; start/end: token indices, inclusive
+;; attrs: names written directly on this member's own declaration. param-attrs: names written on any
+;; of its PARAMETERS (T63 SS8 follow-up) - kept separate, never folded into attrs, since a parameter
+;; attribute is not a decorator of the member itself (cs-extract.rkt's def-decorators reads attrs
+;; alone). start/end: token indices, inclusive.
+(struct cs-member (qualname kind arity paramtypes attrs param-attrs start end) #:transparent)
 
 (define type-keywords '("class" "struct" "interface" "enum" "record"))
 ;; "this" is not here: an indexer's return type precedes it ("public int this[...]"), so `this` must
@@ -485,26 +489,42 @@
       [(and (zero? pd) (zero? bd) (punct? tv i ";")) i]
       [else (loop (add1 i) pd bd)])))
 
-;; A parameter list's arity and a best-effort type text per parameter; tv[open] = "(".
-;; `last` is the outer closing paren's own index: the loop must stop there without consuming it,
-;; not merely once i reaches `close` (which is one past it) — otherwise that closer joins the last
-;; parameter's tokens and param-type-text drops the wrong (final) token instead of the real name.
+;; A parameter list's arity, a best-effort type text per parameter, and the attribute names written on
+;; individual parameters (`[CallerArgumentExpression("x")] string? name = null`, `[NotNull] Foo f` -
+;; notes/16 SS8, acting on a gap SS7 flagged but did not fix: most real parameter-level attribute
+;; usage in a project like ardalis/GuardClauses is on PARAMETERS, not the member declaration, which
+;; skip-prefix/attrs alone never sees). tv[open] = "(". `last` is the outer closing paren's own
+;; index: the loop must stop there without consuming it, not merely once i reaches `close` (which is
+;; one past it) — otherwise that closer joins the last parameter's tokens and param-type-text drops
+;; the wrong (final) token instead of the real name.
+;;
+;; A leading `[...]` group (zero-depth, before any other token of the current parameter - `cur` still
+;; empty) is always an attribute list, never an array-type bracket (`int[] xs` always follows a type
+;; token first, so `cur` is non-empty by the time `[` is seen) - so it is skipped via attr-names-in
+;; (the same collector scan-types' own attribute scan uses) and its names recorded, rather than pushed
+;; into `cur` like every other token. This also fixes a shape-text bug: before this, the attribute's
+;; own tokens leaked into param-type-text's output (`[CallerArgumentExpression("input")]string?`
+;; instead of `string?`). `>= last`, not `=`: skip-group on a malformed/unbalanced `[` could jump past
+;; `last` entirely, and only `>=` is guaranteed to still terminate the loop.
 (define (parse-params tv open)
   (define close (skip-group tv open "(" ")"))
   (define last (sub1 close))
   (cond
-    [(= (add1 open) last) (values 0 '() close)]             ; ()
+    [(= (add1 open) last) (values 0 '() '() close)]             ; ()
     [else
-     (let loop ([i (add1 open)] [depth 0] [cur '()] [types '()])
+     (let loop ([i (add1 open)] [depth 0] [cur '()] [types '()] [cur-attrs '()] [all-attrs '()])
        (cond
-         [(= i last)
+         [(>= i last)
           (define ps (reverse (cons (reverse cur) types)))
-          (values (length ps) (map param-type-text ps) close)]
+          (values (length ps) (map param-type-text ps) (append all-attrs cur-attrs) close)]
+         [(and (zero? depth) (null? cur) (punct? tv i "["))
+          (define g-close (skip-group tv i "[" "]"))
+          (loop g-close depth cur types (append cur-attrs (attr-names-in tv i (sub1 g-close))) all-attrs)]
          [(and (zero? depth) (punct? tv i ","))
-          (loop (add1 i) depth '() (cons (reverse cur) types))]
-         [(member (tv-text tv i) '("(" "[" "<")) (loop (add1 i) (add1 depth) (cons (tv-text tv i) cur) types)]
-         [(member (tv-text tv i) '(")" "]" ">")) (loop (add1 i) (max 0 (sub1 depth)) (cons (tv-text tv i) cur) types)]
-         [else (loop (add1 i) depth (cons (tv-text tv i) cur) types)]))]))
+          (loop (add1 i) depth '() (cons (reverse cur) types) '() (append all-attrs cur-attrs))]
+         [(member (tv-text tv i) '("(" "[" "<")) (loop (add1 i) (add1 depth) (cons (tv-text tv i) cur) types cur-attrs all-attrs)]
+         [(member (tv-text tv i) '(")" "]" ">")) (loop (add1 i) (max 0 (sub1 depth)) (cons (tv-text tv i) cur) types cur-attrs all-attrs)]
+         [else (loop (add1 i) depth (cons (tv-text tv i) cur) types cur-attrs all-attrs)]))]))
 
 ;; A parameter's tokens (in order) → its declared type, dropping modifiers, the name and a default value.
 (define (param-type-text toks)
@@ -720,7 +740,7 @@
 (define (try-member tv j depth qualname-prefix attrs)
   (define n (vector-length tv))
   (define (mk name kind start end #:arity [arity #f] #:paramtypes [pt '()])
-    (cs-member (if (string=? qualname-prefix "") name (string-append qualname-prefix "." name)) kind arity pt attrs start end))
+    (cs-member (if (string=? qualname-prefix "") name (string-append qualname-prefix "." name)) kind arity pt attrs '() start end))
   (cond
     ;; destructor: ~ Name ( ) { ... }
     [(and (< j n) (punct? tv j "~") (< (add1 j) n) (ident? tv (add1 j)))
@@ -782,9 +802,9 @@
 
 (define (finish-callable tv m)
   (define open (cs-member-end m))                      ; end temporarily holds the "(" index
-  (define-values (arity paramtypes close) (parse-params tv open))
+  (define-values (arity paramtypes param-attrs close) (parse-params tv open))
   (define body-end (member-body-end tv close))
-  (values (add1 body-end) (cs-member (cs-member-qualname m) (cs-member-kind m) arity paramtypes (cs-member-attrs m) (cs-member-start m) body-end)))
+  (values (add1 body-end) (cs-member (cs-member-qualname m) (cs-member-kind m) arity paramtypes (cs-member-attrs m) param-attrs (cs-member-start m) body-end)))
 
 (define (finish-property tv m)
   (define opener (cs-member-end m))
@@ -795,13 +815,13 @@
   ;; an auto-property may carry a trailing initializer after its accessor block: `{ get; } = expr;`
   (define final-end
     (if (and (< body-end0 n) (punct? tv body-end0 "=")) (add1 (skip-through-semi tv (add1 body-end0))) body-end0))
-  (values final-end (cs-member (cs-member-qualname m) (cs-member-kind m) #f '() (cs-member-attrs m) (cs-member-start m) (sub1 final-end))))
+  (values final-end (cs-member (cs-member-qualname m) (cs-member-kind m) #f '() (cs-member-attrs m) '() (cs-member-start m) (sub1 final-end))))
 
 (define (finish-field tv m)
   ;; consume through the top-level `;`, so `int a = 1, b = 2;` is one span; the requested name must be
   ;; among the comma-separated identifiers, which the caller matches by qualname alone (arity #f).
   (define end (skip-to-brace-or-semi tv (cs-member-end m)))
-  (values (add1 end) (cs-member (cs-member-qualname m) (cs-member-kind m) #f '() (cs-member-attrs m) (cs-member-start m) end)))
+  (values (add1 end) (cs-member (cs-member-qualname m) (cs-member-kind m) #f '() (cs-member-attrs m) '() (cs-member-start m) end)))
 
 ;; After a `)` (methods) or `]` (indexers): a `{...}` body, an `=> expr;` body, or a bare `;` (abstract/
 ;; interface/partial declaration, or extern). → the index of the last token of the member.

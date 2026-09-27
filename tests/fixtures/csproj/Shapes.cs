@@ -15,6 +15,14 @@ namespace App
     public class LoudAttribute : Attribute { }
     public class QuietAttribute : Attribute { }
 
+    // T63 follow-up (notes/16 SS7/SS8): notes/16 SS7 found real C# projects (ardalis/GuardClauses)
+    // lean on PARAMETER-level attributes - [CallerArgumentExpression], most JetBrains.Annotations.cs
+    // attributes - far more than member/type-level ones. CheckedAttribute exercises the positive case
+    // (a reachable enclosing member -> reachable attribute class); SilentAttribute mirrors
+    // QuietAttribute's negative case (an unreached enclosing member's parameter attribute stays dead).
+    public class CheckedAttribute : Attribute { }
+    public class SilentAttribute : Attribute { }
+
     [Serializable]
     public abstract class Animal
     {
@@ -31,7 +39,15 @@ namespace App
         [Loud]
         public string Bark()
         {
-            return "woof";
+            return Fetch("woof");
+        }
+
+        // no member-level attribute here - [Checked] is on the PARAMETER only, so a resolved
+        // decorates edge out of Dog can only have come from the new parse-params attrs, not the
+        // pre-existing skip-prefix/attrs member-level scan.
+        public string Fetch([Checked] string sound)
+        {
+            return sound;
         }
     }
 
@@ -53,7 +69,7 @@ namespace App
         }
 
         [Quiet]
-        public static int UnusedHelper(int x)
+        public static int UnusedHelper(int x, [Silent] int y = 0)
         {
             return Helper.Triple(x);
         }

@@ -42,14 +42,24 @@
         ;; (bare name AND suffixed name; whichever is a real project symbol wins) is what makes this
         ;; exact, with no linker change. Scope is Dog (Bark's ENCLOSING type), matching python.rkt's
         ;; own decorator-ref convention (steer/python.rkt's self._decorator_refs).
-        (list "Shapes.cs#Dog" "Shapes.cs#LoudAttribute" 'decorates 'exact #f)))
+        (list "Shapes.cs#Dog" "Shapes.cs#LoudAttribute" 'decorates 'exact #f)
+        ;; T63 SS7/SS8 follow-up: [Checked] is on Fetch's PARAMETER, not on Fetch itself (Fetch carries
+        ;; no member-level attribute at all) - this edge can only exist if parse-params' new per-
+        ;; parameter attr scan is wired into cs-extract.rkt's ref emission. Scope is still Dog, Fetch's
+        ;; enclosing type, same convention as the member-level case just above.
+        (list "Shapes.cs#Dog" "Shapes.cs#CheckedAttribute" 'decorates 'exact #f)))
 (for ([e must-find-edges]) (check-true (apply has-edge? e) (format "missing edge: ~a" e)))
 
-;; the bare-form ref ("Loud") must NOT also resolve to something real - only the suffixed form
-;; ("LoudAttribute") should, so there is exactly one RESOLVED decorates edge out of Dog, not two
-(check-equal? (length (filter (λ (e) (and (equal? (gedge-from e) "Shapes.cs#Dog") (eq? (gedge-kind e) 'decorates) (not (gedge-external? e))))
-                               (graph-edges g)))
-              1 "exactly one resolved decorates edge out of Dog (the suffixed form; the bare form is external)")
+;; the bare form of each attribute ("Loud", "Checked") must NOT also resolve to something real - only
+;; the suffixed form should, so there is exactly one RESOLVED decorates edge out of Dog per attribute
+(define (resolved-decorates-edges-to to)
+  (filter (λ (e) (and (equal? (gedge-from e) "Shapes.cs#Dog") (equal? (gedge-to e) to)
+                       (eq? (gedge-kind e) 'decorates) (not (gedge-external? e))))
+          (graph-edges g)))
+(check-equal? (length (resolved-decorates-edges-to "Shapes.cs#LoudAttribute")) 1
+              "exactly one resolved decorates edge Dog->LoudAttribute (the suffixed form; the bare form is external)")
+(check-equal? (length (resolved-decorates-edges-to "Shapes.cs#CheckedAttribute")) 1
+              "exactly one resolved decorates edge Dog->CheckedAttribute (the suffixed form; the bare form is external)")
 
 ;; ---------------------------------------------------------------------------------------------
 ;; 2. known-invisible: a member's own declaration head (return type + name + parameter list) must
@@ -83,7 +93,7 @@
     (if (null? next) seen (loop next (for/fold ([s seen]) ([n next]) (hash-set s n #t))))))
 
 (define reachable (forward-reachable-from "Shapes.cs#Program.Run"))
-(for ([id '("Shapes.cs#Program.Run" "Shapes.cs#Dog" "Shapes.cs#Dog.Speak" "Shapes.cs#Dog.Bark" "Helper.cs#Helper.Double")])
+(for ([id '("Shapes.cs#Program.Run" "Shapes.cs#Dog" "Shapes.cs#Dog.Speak" "Shapes.cs#Dog.Bark" "Shapes.cs#Dog.Fetch" "Helper.cs#Helper.Double")])
   (check-true (hash-ref reachable id #f) (format "~a must be reachable from the entry" id)))
 (for ([id '("Shapes.cs#Program.UnusedHelper" "Helper.cs#Helper.Triple" "Shapes.cs#LoudDog")])
   (check-false (hash-ref reachable id #f) (format "~a is NOT reached from the one entry (a real dead-code candidate for T65)" id)))
@@ -99,6 +109,17 @@
             "LoudAttribute is reachable: Dog (its decorator's enclosing type) is reachable, and now carries the edge")
 (check-false (hash-ref reachable "Shapes.cs#QuietAttribute" #f)
              "QuietAttribute decorates UnusedHelper (scope Program), and Program itself is never reached here")
+
+;; T63 SS7/SS8 follow-up: the same propagation, but for a PARAMETER attribute. CheckedAttribute is on
+;; Fetch's parameter, not Fetch itself, yet it is reachable for the exact same reason LoudAttribute is
+;; (Fetch's enclosing type, Dog, is reachable) - proving parameter-level attrs feed the same reachable-
+;; via-enclosing-scope mechanism as member/type-level ones, not a separate, disconnected ref kind.
+;; SilentAttribute is UnusedHelper's parameter attribute - UnusedHelper's enclosing type, Program, is
+;; never reached here (same as QuietAttribute), so SilentAttribute correctly stays dead too.
+(check-true (hash-ref reachable "Shapes.cs#CheckedAttribute" #f)
+            "CheckedAttribute is reachable: Dog (Fetch's enclosing type) is reachable, via the new per-parameter decorates edge")
+(check-false (hash-ref reachable "Shapes.cs#SilentAttribute" #f)
+             "SilentAttribute decorates a parameter of UnusedHelper (scope Program), and Program itself is never reached here")
 
 ;; ---------------------------------------------------------------------------------------------
 ;; 5. hash-identity: the graph's def-hash for a symbol equals cs-find-anchor's hash for that symbol -
@@ -117,6 +138,14 @@
 (check-equal? (def-kind bark-def) 'method)
 (check-equal? (def-decorators (findf (λ (d) (equal? (def-qualname d) "Animal")) (file-facts-defs fs))) '("Serializable"))
 (check-equal? (def-bases (findf (λ (d) (equal? (def-qualname d) "LoudDog")) (file-facts-defs fs))) '("Dog"))
+
+;; T63 SS7/SS8 follow-up: Fetch's [Checked] is on its PARAMETER, so it must NOT show up as one of
+;; Fetch's own decorators (that would mean parse-params' new attrs leaked into skip-prefix/attrs'
+;; member-level scan) - and parse-params must no longer let the attribute's own tokens leak into the
+;; parameter's TYPE text either (`[Checked]string`, not `string`, was the shape before this fix).
+(define fetch-def (findf (λ (d) (equal? (def-qualname d) "Dog.Fetch")) (file-facts-defs fs)))
+(check-equal? (def-decorators fetch-def) '() "Fetch's own decorators are empty: [Checked] decorates its parameter, not Fetch itself")
+(check-equal? (def-shape fetch-def) "Fetch(string)" "the [Checked] tokens must not leak into the parameter's type text")
 
 ;; file-facts flags
 

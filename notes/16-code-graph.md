@@ -28,12 +28,14 @@ to be unresolvable" is not how the counts work - `external` counts edges where n
 all, a subset that is *also* counted under whichever confidence tag it got, which for an unresolved edge is always
 `name-match` with `to=#f`; so `external <= name-match` always, and the two are not mutually exclusive columns).
 
-³ Superseded by §7 (the T63 attribute-refs follow-up, measured separately below): re-measuring after that fix gives
-exact 10.4%, declared 0%, name-match 89.6%, external 45.2%, resolution ratio **10.4%** - LOWER, not higher, because
-the fix adds thousands of new `decorates` refs project-wide (test-method `[Fact]`/`[Theory]` attributes are by far
-the largest source), and most of those correctly resolve to nothing in-project (xUnit's own attribute classes,
-not GuardClauses'). More refs, correctly classified, is not the same as better precision on the refs that matter -
-see §7 for why this is the right outcome, not a regression.
+³ Superseded by §7 (the T63 attribute-refs follow-up, measured separately below), then again by §8 (the PARAMETER-
+attrs follow-up): re-measuring after §7's fix gives exact 10.4%, declared 0%, name-match 89.6%, external 45.2%,
+resolution ratio **10.4%** - LOWER, not higher, because the fix adds thousands of new `decorates` refs project-wide
+(test-method `[Fact]`/`[Theory]` attributes are by far the largest source), and most of those correctly resolve to
+nothing in-project (xUnit's own attribute classes, not GuardClauses'). More refs, correctly classified, is not the
+same as better precision on the refs that matter - see §7 for why this is the right outcome, not a regression. §8
+re-measures again after fixing parameter-level attrs AND deduping repeated attribute names per declaration (the
+latter alone drops external from 45.2% to ~39.4%, before parameter attrs add anything): resolution ratio 11.5%.
 
 **Racket has by far the best resolution ratio, and C# by far the worst - both make sense structurally, not just as
 measurement noise:**
@@ -121,7 +123,9 @@ Python's public_api was already mostly working - their counts moved only slightl
 dunders in §2's Python fix, covered in §4.)
 
 ⁴ Superseded by §7: after the attribute-refs follow-up, GuardClauses' dead count is 209/841 = 24.9%, a small real
-drop (3 symbols), not the large one the §4 diagnosis below implied it should be - see §7 for why.
+drop (3 symbols), not the large one the §4 diagnosis below implied it should be - see §7 for why. Superseded again
+by §8 (the parameter-attrs follow-up): 207/841 = 24.6% - see §8 for why this small a further drop is actually the
+complete, correct fix, not an incomplete one.
 
 ## 4. Hand-checked dead-finding samples, classified true/false positive **[tested]**
 
@@ -178,10 +182,12 @@ context-manager protocol, not the async one, and not the general object protocol
 
 ### C# (GuardClauses): 20 sampled (path-sorted), plus a full read of the remaining 192 by grep
 
-**Superseded in part by §7**: the `decorates`-ref gap named just below WAS fixed, but only reduced this project's
-dead count by 3 (212→209) - most of the 211 attribute-class false positives named here turned out to be on
-PARAMETERS, not on the type/method declaration itself, a third tier §7's fix does not cover. Read on for the
-original diagnosis, then §7 for what actually happened when it was acted on.
+**Superseded in part by §7, then §8**: the `decorates`-ref gap named just below WAS fixed, but only reduced this
+project's dead count by 3 (212→209) - most of the 211 attribute-class false positives named here turned out to be
+on PARAMETERS, not on the type/method declaration itself, a third tier §7's fix does not cover. Read on for the
+original diagnosis, then §7 for what actually happened when it was acted on, then §8 for the parameter-level fix
+and - the more important finding - why a full (not 20-sample) read of the dead list shows this project's own
+attribute-class false positives were already down to essentially zero once §7+§8 are both in, not still ~211.
 
 **0 true positives in the 20-sample; 1 true positive found in the full 212 (0.5% overall).** 211 of 212 are
 attribute classes (`CallerArgumentExpressionAttribute`, and 17 in `ThirdParty/JetBrains.Annotations.cs`:
@@ -203,8 +209,8 @@ Python-specific one.
 - **Dead-code precision on this sample is poor for both Python and C#** (0% true positives sampled for Python; 0.5%
   for C#), and **also poor for Racket** on the one file sampled (0%), all for the SAME reason at bottom: this graph
   only ever emits a `ref` for something written as a call (`f(...)`, `obj.f(...)`, `new T(...)`), never for a plain
-  value/attribute reference, a decorator/attribute application (Python and, since §7, C# on the type/member tier
-  are the exceptions here - both emit `decorates` refs; C# parameter-level attributes still do not, per §7), or a
+  value/attribute reference, a decorator/attribute application (Python and, since §7/§8, C# on the type/member AND
+  parameter tiers are the exceptions here - all three now emit `decorates` refs), or a
   name captured by a language runtime hook this project's `implicit-names` table does not
   yet list. **`steer rules dead`'s findings should be read as "no call to this was found," not "this is unused" -
   a human (or an agent) still has to look**, exactly as `notes/12`/`notes/16`'s own framing for this whole system
@@ -292,7 +298,10 @@ on raw token TEXT, not indices, so they cannot reuse `attr-names-in` (which need
 written. This is a real, previously-undiagnosed scope cut, not fixed in this pass, and is a plausible reason C#'s
 false-positive rate would stay high on other real .NET projects that lean on parameter-level attributes the same
 way (`[FromBody]`, `[Required]`, ASP.NET model-binding attributes are the same shape) - flagged via `spawn_task` as
-a follow-up rather than silently left as a gap in this note alone.
+a follow-up rather than silently left as a gap in this note alone. → §8 acts on this follow-up; read there for the
+fix and, more importantly, for how much of "most of the 17 JetBrains annotations... are likewise applied to
+parameters" turned out to be true attribute-class USAGE at all once checked against the real source, versus
+attribute classes GuardClauses vendors but never itself applies anywhere.
 
 **What this adds to §5's framing, plainly:** a fix that is mechanically correct and verified end-to-end on a
 purpose-built fixture (proven: the mechanism works, the suffix-guessing is necessary and sufficient for the case it
@@ -304,3 +313,114 @@ size that found the number (211) was too small, and too concentrated in one code
 them apart. The same caution note 12 and §4 already applied to false-positive RATES applies just as much to
 false-positive CAUSES: verify the fix against the real project it was diagnosed from before calling it fixed, not
 just against a fixture built to exercise the mechanism.
+
+## 8. Follow-up (post-milestone, 2026-09-27): C# PARAMETER-level `decorates` refs, and what a full dead-list read
+shows **[tested]**
+
+§7's own closing note flagged a third, undiagnosed tier: most real attribute usage in ardalis/GuardClauses is on
+PARAMETERS (`[CallerArgumentExpression("input")]`, most JetBrains annotations), which `scan-members`'s
+`skip-prefix/attrs` never sees (it only runs at a member's own start, before the parameter list) and which
+`parse-params`/`param-type-text` (T50) could not collect either, since they work on raw per-parameter TEXT, not
+token indices, so they could not reuse `attr-names-in` (which needs `tv`+indices) as written.
+
+**The fix**: `parse-params` (steer/csharp.rkt) now tracks each parameter's start index as it splits on top-level
+commas (the SAME depth-tracking loop it already had, extended, not duplicated), and treats a `[...]` group at zero
+depth before any other token of the current parameter (`cur` is still empty) as an attribute list - reusing
+`attr-names-in`, the same collector scan-types' own type-attribute scan uses - rather than pushing those tokens
+into the parameter's own text. `cs-member` gained a `param-attrs` field, kept separate from `attrs` (the member's
+OWN attributes): `def-decorators` reads `attrs` alone, and a parameter attribute is not a decorator of the member
+itself. `cs-extract.rkt` emits a new `member-param-attr-refs` list, same convention as the existing member/type-
+level ones: scope is the decorated member's ENCLOSING type (there is no parameter-level symbol in this graph to
+scope to individually), at the member's own start line.
+
+**A real bug fixed as a side effect, pinned by a test, not just noticed**: before this, the attribute's own tokens
+leaked into `param-type-text`'s output - `[CallerArgumentExpression("input")] string? name = null` produced the
+shape text `[CallerArgumentExpression("input")]string?`, not `string?`. Skipping the `[...]` group (not just
+collecting its names) fixes this; the fixture asserts `def-shape` on a parameter-attributed method directly.
+
+**A second fix, incidental to the first but real**: `attr-decorates-refs` now dedupes `names` before emitting
+refs. Without this, the SAME attribute name applied to several parameters of one method (`[NotNull]` on three
+parameters, say) would emit its own pair of duplicate ref structs per occurrence - and since `attr-decorates-refs`
+is shared by all three tiers (type/member/parameter), this ALSO fixes a pre-existing inflation at the member
+level: GuardClauses' own test suite stacks `[Theory]`/`[InlineData(...)]` repeatedly on single test methods (620
+`InlineData` usages project-wide), and each repeat was previously counted as its own pair of (correctly-external)
+refs.
+
+**Verified with a fixture, the same style as §7's**: `tests/fixtures/csproj/Shapes.cs` gained `CheckedAttribute`
+(used bare, on a parameter of `Dog.Fetch`, with `Fetch` carrying NO member-level attribute of its own - the only
+way a resolved `Dog -> CheckedAttribute` edge can exist is via the new per-parameter path) and `SilentAttribute`
+(on a parameter of the already-unreached `UnusedHelper`, mirroring `QuietAttribute`'s negative case).
+`tests/cs-graph-test.rkt` asserts: the resolved edge exists and is exact via the suffix fallback (same as
+`LoudAttribute`); `CheckedAttribute` is reachable (Dog is reachable) and `SilentAttribute` is not (Program is
+not); `Fetch`'s own `def-decorators` is `'()` (proof the parameter attribute did not leak into member-level
+metadata); and `def-shape` is `"Fetch(string)"`, not the bracketed form (pinning the shape-text bug above). `raco
+test tests/` (1597 tests) and `make test-bin` both pass.
+
+**Re-measuring GuardClauses at the same pinned commit (`f96b823`), fresh clone, `.steer/` cache cleared before
+EACH run** (a stale content-hash-keyed cache from an earlier run on the SAME clone silently served pre-fix facts
+to a later run during this work - content hashing has no way to know the EXTRACTOR itself changed, only that the
+`.cs` files didn't; a real trap hit while measuring, not a hypothetical one, worth remembering for anyone
+re-measuring after touching `cs-extract.rkt`/`csharp.rkt`):
+
+| | dead symbols | resolution ratio (exact/declared/name-match/external) | refs | edges |
+|---|---|---|---|---|
+| before (§7's state, re-measured fresh: dedup fix present, param-attrs still disabled) | 209 / 841 (24.9%) | 11.5% / 0% / 88.5% / 39.4% | 3777 | 7792 |
+| after (this fix) | 207 / 841 (24.6%) | 11.5% / 0% / 88.5% / 39.5% | 3981 | 8035 |
+
+The "before" row here is NOT bit-for-bit §7's own recorded 10.4%/0%/89.6%/45.2%: the dedup fix above lowers
+`external` even WITHOUT parameter attrs (fewer duplicate `[InlineData(...)]`-stack refs), so re-measuring §7's own
+state fresh, with dedup but param-attrs still off, already shows 11.5%/39.4%. Most of §7→§8's `external` drop
+(45.2%→39.5%) is the dedup, not the new parameter refs, which barely move the ratio at all (39.4%→39.5%) because
+they resolve almost entirely to names dedup was already collapsing duplicates of.
+
+**Only 2 dead-list entries move (209→207), and diffing the two dead lists names them exactly**:
+`CallerArgumentExpressionAttribute` (the class) and its own constructor. `NotNullAttribute` and
+`ValidatedNotNullAttribute` - the other two attribute names GuardClauses' own code actually applies to a
+parameter - were ALREADY reachable before this fix, for reasons that have NOTHING to do with parameter attrs:
+`ValidatedNotNullAttribute` is directly entry-admitted (a `public` top-level type, the `public_api` rule from §2),
+and `NotNullAttribute` is reached through a pre-existing, somewhat coincidental chain (`ValidatedNotNullAttribute
+: Attribute`'s base-class reference name-matches an unrelated property literally called `Attribute` inside
+`AspRequiredAttributeAttribute`; that property's own module then cascades reachability, via `reach.rkt`'s "a
+reachable symbol's own module is reachable too" rule, to every OTHER type-level `decorates` edge already in that
+same vendored file - including `BaseTypeRequiredAttribute -> NotNullAttribute`, a genuine member-level attribute
+use that already existed since §7). This is a real, pre-existing over-approximation risk in the graph (a name
+collision on "Attribute" as a base-class reference, cascading through file-level reachability) worth its own
+look some day, but it predates this fix and is not something this follow-up introduces or needs to fix to be
+correct and complete for its own stated scope.
+
+**A full read of the dead list (207 items, not a 20-sample) is the real finding, and it reframes §4/§7 rather
+than just extending them**: 201 of the 207 are `Attribute`-suffixed, all from the ONE vendored file
+`ThirdParty/JetBrains.Annotations.cs` (95 attribute classes there, all correctly `internal` - checked directly
+against the source, ruling out an `exported-type?` bug); 5 more are enum types that are only ever used as
+constructor-parameter TYPES of those same unused attribute classes; the last is `TestObj._internalValue`, §4's
+own already-documented "plain reference, not a call" gap, unrelated to attributes entirely. Cross-checking real
+usage across the WHOLE project (grepping every `.cs` file except each class's own defining file, `src` AND
+`test`) turns up exactly THREE non-BCL attribute names GuardClauses' own code ever applies, ALL parameter-only:
+`CallerArgumentExpression` (39 sites), `NotNull` (23), `ValidatedNotNull` (22) - and all three resolve as
+reachable after this fix (two of them, as above, already did before it for unrelated reasons). **Zero remaining
+false positives among attribute-class dead findings in this project.** The other 200 (195 attribute classes + 5
+enums) are not a resolution gap at all: they are true dead code, unused portions of a large vendored third-party
+file GuardClauses ships but barely uses (ASP.NET MVC/Razor/XAML tooling-hint attributes like `AspMvcController`,
+`RazorDirective`, `XamlItemBinding`, entirely irrelevant to a guard-clause library).
+
+**What this means for §4's own framing, plainly**: §4 read a 20-item, path-sorted sample and reported "0 true
+positives in the sample, 1 in the full 212 (0.5%)" - correct as far as it went, but a 20-sample cannot distinguish
+"the extractor has a resolution gap" from "this symbol is genuinely, permanently unused," and §7's diagnosis (and
+this note's own §7 text) generalized the sample's uniform "attribute class" SHAPE into an assumption that fixing
+attribute-usage refs would resolve most of the COUNT. It would have, IF most of those 211 had been real usage the
+extractor was failing to connect - they were not. The measured effect (209→207) looks small only if you expected
+the diagnosed count (211) to equal the count of real false positives; once every one of the 207 is actually read
+and cross-checked against real source usage, this fix is complete for GuardClauses: every attribute this
+project's own code applies to a parameter now resolves. The caution note 12/§4/§7 already apply to false-positive
+RATES and CAUSES applies with equal force to false-positive COUNTS: a sample telling you "which shape the false
+positives have" does not tell you "how many of that shape are real."
+
+**Remaining, real sub-tiers this fix does not cover** (none of them explain ANY of GuardClauses' own 207 -
+confirmed above - so these are scope notes for other .NET projects that might lean on them, not residual causes
+here): attributes on a positional record's or primary constructor's parameters (`scan-types`/`scan-members` both
+`skip-group` straight past that parameter list, T63/T50's own original scope cut); indexer parameters
+(`finish-property` never parses the `[...]` argument list at all, arity or attrs); attributes on a lambda's or
+local function's parameters (body token ranges are only scanned for calls, never re-parsed for declarations);
+attributes on a generic type parameter (`<[Foo] T>`); and `[return: X]` (targets the return value, not the
+declaration - `attr-names-in` would collect `return` itself as a bogus attribute "name" and miss `X`, a real,
+separate bug in the EXISTING member/type-level scan from §7, not something this fix touches).
