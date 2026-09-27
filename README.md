@@ -30,6 +30,7 @@ One executable, short text output (or `--json` in the note-03 protocol), stable 
 | continuity | `resume` (budgeted packet) · `since N` (event cursor) · `graph` (cycles, layers, critical path) | F1 |
 | plan drift | `stale` / `refresh`: symbol anchors (`file#name`) hashed over the datum, so reformatting is not drift; exact for Racket/Python/C#, heuristic elsewhere | F2 |
 | code checks | `syntax [--fix]`: a reader/parser error + a verified repair — Racket, Python, C#; anything else is `skipped` · `dup`/`api` are Racket-only | A1 F5 F3 |
+| criteria | `spec check\|render FILE\|-`: acceptance criteria in a controlled (EARS) form; refuses vague ones (weak modals, "etc.", "fast", hedges, hidden conditions) with a located fix | G2 |
 | architecture | `rules check\|facts\|init`: layering rules as Datalog over the require graph; each violation shows the require path (this repo checks itself: `.steer/rules.dl`) | F4 |
 | Racket docs | `doc exists\|sig\|search\|exports`: is this name real, its documented signature and `(require ...)`, nearest racket names for a wrong one | B1 |
 | harness | `skills install` · `hook session-start` · `hook post-edit` · `hook config` | F7 |
