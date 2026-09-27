@@ -61,6 +61,18 @@
 (check-equal? (length (resolved-decorates-edges-to "Shapes.cs#CheckedAttribute")) 1
               "exactly one resolved decorates edge Dog->CheckedAttribute (the suffixed form; the bare form is external)")
 
+;; T65/T70 follow-up (notes/16 SS8/SS9): LoudAttribute/QuietAttribute/CheckedAttribute/SilentAttribute
+;; all write `: Attribute`, whose real target (System.Attribute) is a BCL type this graph never sees -
+;; so local/imported resolution both fail. Before the base-name-match kind filter, that fell through
+;; to the project-wide bare-name-match, which - with Helper.cs#AttributeHolder.Attribute (a PROPERTY,
+;; not a type) now in the fixture - would wrongly resolve `: Attribute` onto it. It must go external
+;; instead, and NO inherits/implements edge anywhere in the graph may target that property.
+(check-true (has-edge? "Shapes.cs#LoudAttribute" #f 'inherits 'name-match #f #t)
+            "LoudAttribute's `: Attribute` base is unresolvable in-project and must be external, not name-matched onto a property")
+(check-false (findf (λ (e) (and (memq (gedge-kind e) '(inherits implements)) (equal? (gedge-to e) "Helper.cs#AttributeHolder.Attribute")))
+                     (graph-edges g))
+             "no inherits/implements edge may target a property just because it shares a bare name with an unresolvable base")
+
 ;; ---------------------------------------------------------------------------------------------
 ;; 2. known-invisible: a member's own declaration head (return type + name + parameter list) must
 ;; NEVER be read as a self-call - `public string Speak()` is not a call to `Speak`. This was a real

@@ -386,7 +386,9 @@ same vendored file - including `BaseTypeRequiredAttribute -> NotNullAttribute`, 
 use that already existed since §7). This is a real, pre-existing over-approximation risk in the graph (a name
 collision on "Attribute" as a base-class reference, cascading through file-level reachability) worth its own
 look some day, but it predates this fix and is not something this follow-up introduces or needs to fix to be
-correct and complete for its own stated scope.
+correct and complete for its own stated scope. **Superseded by §9**: the "somewhat coincidental chain" is fixed
+below (it turns out to be systematic, not coincidental - 97 classes hit it, not one), and the module-cascade half
+is measured and left open as its own, separate, still-real issue.
 
 **A full read of the dead list (207 items, not a 20-sample) is the real finding, and it reframes §4/§7 rather
 than just extending them**: 201 of the 207 are `Attribute`-suffixed, all from the ONE vendored file
@@ -424,3 +426,125 @@ local function's parameters (body token ranges are only scanned for calls, never
 attributes on a generic type parameter (`<[Foo] T>`); and `[return: X]` (targets the return value, not the
 declaration - `attr-names-in` would collect `return` itself as a bogus attribute "name" and miss `X`, a real,
 separate bug in the EXISTING member/type-level scan from §7, not something this fix touches).
+
+## 9. Follow-up (2026-09-27): the "coincidental" `Attribute` chain from §8 is systematic, not coincidental, and
+splits into two independent mechanisms, one fixed and one left open **[tested]**
+
+§8 flagged, but did not act on, "a name collision on 'Attribute' as a base-class reference, cascading through
+file-level reachability." Re-tracing it with `path-to` on a fresh clone (`f96b823`, `.steer/` cache cleared)
+shows it is two separate mechanisms stacked on top of each other, not one:
+
+**Mechanism A - base-class resolution is kind-blind.** `link-facts`' inherits/implements pass
+(`steer/graph.rkt`, the `bases` loop) falls back, once local and imported resolution both fail, to
+`project-name-matches` - the SAME `by-bare` project-wide index `calls`/`references`/`decorates` use, keyed on
+bare name alone, with no idea what KIND of def it is matching against. A base-class reference can only ever mean
+a type (class/struct/interface/enum); nothing else is a legal base. But the fallback doesn't know that, so
+`class Foo : Attribute` with no in-project `Attribute` TYPE (C#'s real `System.Attribute` is a BCL type this
+graph never sees at all) will happily bind to whatever ELSE in the project is bare-named `Attribute` - a
+property, a field, a method, anything. In GuardClauses this lands on ONE property,
+`AspRequiredAttributeAttribute.Attribute` (`[NotNull] public string Attribute { get; }`, an ASP.NET tag-helper
+hint, nothing to do with C#'s `Attribute` base class). Measured directly (`graph-edges-to`, not sampled): **97**
+`inherits(name-match)` edges land on that one property - every `: Attribute` class in the project, in the
+vendored `ThirdParty/JetBrains.Annotations.cs` (95 of them) plus `CallerArgumentExpressionAttribute` and
+`ValidatedNotNullAttribute` from two OTHER files. §8's "somewhat coincidental chain" undersold this: it is not
+one lucky hit, it is every attribute class in the codebase wired to the same wrong target, because C# forces
+every one of them to write the identical unresolvable base name.
+
+**Mechanism B - module-scoped `decorates`/`calls` edges bypass the "only constructors" rule, independently of
+A.** `reach.rkt`'s module-cascade intentionally restricts `defines` edges out of a newly-reachable MODULE to
+constructor targets only (`defines-edge-to-walk?`), specifically so a module becoming reachable does not light up
+every top-level class in the file. But `decorates`/`calls` edges are never subject to that filter - they are
+walked unconditionally, same as any other forward edge. A type-level attribute usage on a TOP-LEVEL type gets
+`scope=#f` (`cs-extract.rkt`'s `enclosing-type-of` returns `#f` for a qualname with no dot - a top-level type IS
+its own top level), which makes the `decorates` ref MODULE-scoped, not type-scoped - and the same is true of a
+plain top-level `calls` ref. Once the module is reachable at all (by ANY means, correct or not), every such
+module-scoped edge that resolves in-project fires, regardless of the constructor-only rule. Traced with
+`path-to`: `NotNullAttribute` is independently, LEGITIMATELY reachable via `GuardClauseExtensions`'s own real
+`[NotNull]` parameter usage (current HEAD, §8's parameter-attrs fix in effect) - §8's own "coincidental chain"
+text describes the PRE-parameter-attrs graph, where that direct edge did not yet exist. Either way, once
+`JetBrains.Annotations.cs`'s module is reachable, its own module-scoped `decorates`/`calls` edges independently
+light up `BaseTypeRequiredAttribute`, `ContractAnnotationAttribute`, `MeansImplicitUseAttribute` and
+`UsedImplicitlyAttribute` (plus each one's own constructor) - 4 classes + 4 constructors, all self- or
+sibling-referencing attributes inside the SAME file, none of them reached via mechanism A at all.
+
+**Isolating each mechanism's contribution** (strip only A's 97 edges, or only this file's module-scoped
+`decorates`/`calls` edges, and re-run reachability; `dead-nodes` before any fix is exactly the pinned 207 from
+§8, confirming the setup matches):
+
+| graph state | dead symbols | false-negatives removed |
+|---|---|---|
+| as measured in §8 (both mechanisms live) | 207 | - |
+| mechanism A fixed alone | 208 | `AspRequiredAttributeAttribute.Attribute` (1) |
+| mechanism B's edges removed alone (this file only) | 215 | `BaseTypeRequiredAttribute`, `ContractAnnotationAttribute`, `MeansImplicitUseAttribute`, `UsedImplicitlyAttribute` + their 4 ctors (8) |
+| both removed | 216 | all 9 |
+
+The cleanest illustration of A doing real damage: `AspRequiredAttributeAttribute.Attribute` (the property) is
+reachable; `AspRequiredAttributeAttribute` (the CLASS that property is a member of) is not. A property cannot be
+legitimately more reachable than its own class - that gap alone is proof of a wrong edge, independent of knowing
+anything about the source.
+
+**Cross-language exposure, checked, not assumed** (same generic scan - any `inherits`/`implements` edge with
+confidence `name-match` whose target's `gnode-kind` is not `class`/`struct`/`interface`/`enum` - run against
+all four of this note's pinned corpora, pre-fix):
+
+| project | language | mechanism-A edges |
+|---|---|---|
+| rebellion | Racket | 0 |
+| tomli | Python | 0 |
+| aiofiles | Python | 0 |
+| GuardClauses | C# | 97 |
+
+Racket is structurally immune to mechanism A: `rkt-extract.rkt` never populates `def-bases` at all (Racket has no
+extracted inheritance concept), so the inherits/implements pass never runs for Racket code. It is likewise immune
+to mechanism B: `rkt-extract.rkt` has no decorator concept, so `decorates` edges don't exist for Racket either
+(Racket calls/references still go through the SAME kind-blind `project-name-matches` fallback as every other
+language - see "what this fix does not touch" below - but that is the accepted, general over-approximation, not
+this specific bug). Python has both `def-bases` (real class inheritance) and decorator refs scoped exactly like
+C#'s (`python.rkt`'s `_decorator_refs` reads `self.scope()` BEFORE pushing the decorated def's own name onto the
+stack - `steer/csharp.rkt`'s own comment already named this as the convention it deliberately matches), so Python
+is exposed to both mechanisms in principle; it simply didn't fire on either of the two real Python projects this
+note measures, because neither project has an unresolvable base landing on an in-project bare-name collision.
+C#'s exposure is structurally worse than either, for the reason §1 already measured: `declared` is a real 0%
+project-wide (no working import-based resolution), so EVERY C# base that isn't in the same file goes through
+this exact fallback - and the language's own idiom (every attribute class must write `: Attribute`, a base this
+graph can never resolve) manufactures dozens of identical unresolvable references in any project that defines
+more than a couple of custom attributes.
+
+**The fix applied, for mechanism A only** (`steer/graph.rkt`, the inherits/implements `bases` loop): both the
+`imported` (declared-tier) and `global` (name-match-tier) candidates are now filtered to
+`(memq (def-kind d) '(class struct interface enum))` before being accepted - a `find-in-imports`/
+`project-name-matches` hit that resolves to a property, field, method, function, constructor, module, etc. is
+now treated as no match, falling through to the next tier (or to `external` if nothing type-like matches at
+all). `find-in-file` (same-file, exact-qualname local resolution) is left as is - unlike the fallback tiers, it
+has no case-by-case candidate LIST to filter, and a base name matching a non-type SAME-FILE qualname exactly is
+a rarer, different-shaped gap not exercised by anything measured here. Verified with a new fixture
+(`tests/fixtures/csproj/Helper.cs` gained `AttributeHolder.Attribute`, a property with the same bare name as
+Shapes.cs's existing `LoudAttribute`/`QuietAttribute`/`CheckedAttribute`/`SilentAttribute : Attribute` bases, none
+of which have an in-project `Attribute` TYPE): `tests/cs-graph-test.rkt` asserts `LoudAttribute`'s base resolves
+`external`, and that no `inherits`/`implements` edge anywhere in the graph targets the decoy property. Confirmed
+the fixture fails without the fix (`LoudAttribute -> AttributeHolder.Attribute`, `inherits`/`name-match`, exactly
+the GuardClauses shape) and passes with it. `raco test tests/` (1599 tests, up from 1597) and `make test-bin`
+both pass; rebellion's resolution-ratio floor (51.2%) is unaffected, matching the 0-count above. Re-measured
+GuardClauses fresh (cache cleared): dead 207→208, external 39.5%→40.7%, exactly the isolated "A alone" row above.
+
+**What this fix does NOT touch, deliberately:**
+- `calls`/`references`/`decorates` resolution (`graph.rkt`'s non-receiver ref-resolution branch) keeps the SAME
+  unfiltered `project-name-matches` fallback. Unlike a base class, a call or reference target can legitimately be
+  almost any kind (function, method, property getter, constructor, macro, struct-as-constructor, ...), so there
+  is no equivalently unambiguous kind filter to apply - narrowing it risks turning real cross-kind calls into
+  false `external`s. This stays the accepted, general may-call over-approximation notes/12/16 already document,
+  not something this follow-up changes.
+- The `overrides` pass and the `self`/`base` receiver branch were already immune before this fix (§-none, just
+  confirmed by reading): both resolve the base CLASS only via `find-in-file`/`find-in-imports`, never falling
+  back to `project-name-matches`; when that lookup fails they emit an `external` edge, not a name-matched one.
+- **Mechanism B is NOT fixed here.** The right fix is a scoping-convention change in BOTH extractors (scope a
+  type-level/top-level decorator ref to the decorated def itself, not its enclosing scope) - and that convention
+  is deliberate and shared (`cs-extract.rkt`'s own comment names Python's `_decorator_refs` as the pattern it is
+  matching), used by the §7/§8 fixture assertions for MEMBER-level attributes (correctly scoped to the enclosing
+  type there - only the TOP-LEVEL-type case is wrong). Changing it needs to preserve the member-level behavior
+  while fixing the top-level case, is not a one-line filter, and touches both language extractors at once - real
+  design work, not a "curiosity" fix. It also cannot be patched from `reach.rkt`'s side by filtering module→
+  `decorates`/`calls` edges generically: a module-scoped `calls` ref from Python's own top-level script code (a
+  real, `has-statements?`-flagged construct this graph already models on purpose) is a LEGITIMATE forward edge
+  that must stay walkable. Left as a named, measured, reproducible follow-up (the 8-false-negative row above is
+  its concrete cost on this one project) rather than documented as an abstract risk.

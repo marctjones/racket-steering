@@ -161,14 +161,25 @@
       (for ([tgt (cdr im+targets)])
         (when (member tgt all-paths)
           (emit! (gedge (module-id (file-facts-path f)) (module-id tgt) 'imports 'declared #f #f))))))
-  ;; inherits/implements, from each def's `bases`
+  ;; inherits/implements, from each def's `bases`. A base name names a TYPE, never a member - so once
+  ;; local (same-file, exact qualname) resolution fails, the imported/global fallbacks are restricted
+  ;; to type-like defs: unlike a call or a plain reference, which can legitimately target almost any
+  ;; kind, "extends X"/"implements X" can only ever mean a class/struct/interface/enum. Without this,
+  ;; `class Foo : Attribute` with no in-project `Attribute` type falls back to matching ANY same-named
+  ;; def project-wide - including an unrelated property or field - purely because C#'s real base
+  ;; (`System.Attribute`) is a BCL type this graph never sees (notes/16 §8/§9: this is exactly how one
+  ;; property named "Attribute" pulled a whole vendored file, and dozens of unrelated attribute
+  ;; classes, into "reachable").
+  (define (type-like? d) (memq (def-kind d) '(class struct interface enum)))
   (for ([f facts])
     (for ([d (file-facts-defs f)] #:when (pair? (def-bases d)))
       (define from-id (symbol-id (file-facts-path f) (def-qualname d)))
       (for ([base-name (def-bases d)])
         (define local (find-in-file (file-facts-path f) base-name))
-        (define imported (and (not local) (find-in-imports (file-facts-path f) base-name)))
-        (define global (and (not local) (not imported) (project-name-matches base-name)))
+        (define imported0 (and (not local) (find-in-imports (file-facts-path f) base-name)))
+        (define imported (and imported0 (type-like? (cdr imported0)) imported0))
+        (define global0 (and (not local) (not imported) (project-name-matches base-name)))
+        (define global (and global0 (filter (λ (fd) (type-like? (cdr fd))) global0)))
         (define ekind (if (eq? (def-kind d) 'interface) 'implements 'inherits))
         (cond
           [local (emit! (gedge from-id (symbol-id (file-facts-path f) (def-qualname local)) ekind 'exact #f #f))]
