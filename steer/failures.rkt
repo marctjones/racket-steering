@@ -25,7 +25,8 @@
     [(member k '("read-error" "unclosed" "unclosed-form" "extra-closer" "mismatched-closer" "no-lang"))
      (if (equal? t "import") 'plan-error 'syntax)]
     [(member k '("removed-export" "arity-narrowed" "keywords-changed" "kind-changed" "contract-changed")) 'api-break]
-    [(equal? k "check-failed") 'check-failed]
+    [(member k '("check-failed" "test-failed" "test-failed-more")) 'check-failed]
+    [(member k '("diag-failed" "diag-failed-more")) 'build-failed]
     [(member k '("stale-anchor" "dropped-dependency" "missing-dependency" "cycle" "id-collision" "duplicate-seq"
                  "conflict-marker" "corrupt-task" "id-mismatch" "stray-file" "stale-claim"))
      (if (equal? k "cycle") (if (equal? t "import") 'plan-error 'drift) 'drift)]
@@ -48,6 +49,7 @@
     [(syntax) "structural checks: `steer syntax` and the post-edit hook (T44/T45 for other languages)"]
     [(unbound-id) "name lookup: `steer doc` (B1); a binding checker (A2, T13) would catch these before running"]
     [(check-failed) "test output parsing so failures are readable (T47), and better checks"]
+    [(build-failed) "the code never reached its tests: a build or import error (T48 diagnostics), or a binding checker (A2) to catch it earlier"]
     [(tool-misuse) "usage hints and skill text: agents are misusing steer itself"]
     [(plan-error) "import error messages and the plan format docs"]
     [(criteria-error) "the criteria templates: skill text, `steer help spec`, the observable-verb and lint rule lists"]

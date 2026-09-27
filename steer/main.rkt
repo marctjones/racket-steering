@@ -45,6 +45,31 @@ GOAL
 EOF
   )
 
+;; What is exact vs skipped, per language, for the three commands where it matters most. Kept as
+;; one table so the three help texts and the skill agree (T52: note 12 found agents both over-trusting
+;; and ignoring these tools when they did not say which languages they actually cover).
+(define language-coverage-table #<<EOF
+| language | syntax check | anchors (file#Name) | done's test-failure detail |
+|---|---|---|---|
+| Racket (.rkt) | exact (the reader); a verified repair is offered | exact, by qualname; datum hash | rackunit (`raco test`) parsed |
+| Python (.py/.pyi) | exact (compile()); needs python3; a verified repair for named shapes | exact, by qualname (Class.method); needs python3; ast hash | pytest parsed |
+| C# (.cs) | exact bracket/string structure; no dotnet needed; a verified repair | exact, by qualname; no dotnet needed; overloads need /arity or (types) | dotnet test (VSTest) parsed; MSBuild build errors too |
+| anything else | skipped (an explicit `skipped` finding, never silently "ok") | heuristic: keyword + indentation block, labelled `~heuristic` | shown as the check's raw tail only |
+EOF
+  )
+
+(define syntax-language-details (string-append language-coverage-table "\n\n"
+  "Python and C# need no external tool (python3's own compiler; a Racket-native C# scanner). A file type\n"
+  "with no gate is reported `skipped`, not `ok`: never assume a green result covers a language not listed."))
+(define anchor-language-details (string-append language-coverage-table "\n\n"
+  "Overloads and same-named members across partial C# classes: `Class.Method/2` (arity) or\n"
+  "`Class.Method(int, string)` (types). A heuristic-language anchor is exact enough to notice most real\n"
+  "changes, but can miss a change to a multi-line signature or pick the wrong one of several same-named\n"
+  "definitions; treat a `~heuristic` result as a hint, not a guarantee."))
+(define done-language-details (string-append language-coverage-table "\n\n"
+  "The failing-test detail (test id, file:line, message) only appears for a runner steer recognises;\n"
+  "anything else falls back to the check's raw output tail, unchanged from before this table existed."))
+
 (define commands
   (list
    (cmd "init" cmd-init "steer init [--skills] [--force]"
@@ -61,7 +86,7 @@ EOF
    (cmd "note" cmd-note "steer note ID TEXT" "record a decision or finding on a task")
    (cmd "checkpoint" cmd-checkpoint "steer checkpoint ID --did S --next S [--question Q]... [--release]"
         "save progress so a fresh context can continue; both --did and --next are required")
-   (cmd "done" cmd-done "steer done ID [--unverified REASON]" "run the task's checks; mark done only if all pass")
+   (cmd "done" cmd-done "steer done ID [--unverified REASON]" "run the task's checks; mark done only if all pass" done-language-details)
    (cmd "verify" cmd-verify "steer verify ID" "run the task's checks without changing its status")
    (cmd "drop" cmd-drop "steer drop ID --reason S" "abandon a task, with the reason")
    (cmd "reopen" cmd-reopen "steer reopen ID" "reopen a done or dropped task")
@@ -69,11 +94,11 @@ EOF
    (cmd "resume" cmd-resume "steer resume" "start-of-session packet: your active task, what's ready, stale anchors, the event cursor")
    (cmd "since" cmd-since "steer since CURSOR" "what happened after an event cursor (from `resume`)")
    (cmd "graph" cmd-graph "steer graph" "check the dependency graph: cycles, missing/dropped deps, layers, critical path")
-   (cmd "stale" cmd-stale "steer stale" "anchors on open tasks whose code changed since the plan was written")
+   (cmd "stale" cmd-stale "steer stale" "anchors on open tasks whose code changed since the plan was written" anchor-language-details)
    (cmd "refresh" cmd-refresh "steer refresh ID... | --all" "accept the current code as the new anchor baseline after reviewing")
-   (cmd "syntax" cmd-syntax "steer syntax FILE... [--fix]" "Racket structural check: reader error plus a verified repair; --fix applies it")
-   (cmd "dup" cmd-dup "steer dup [PATH...] [--min-size N] [--loose]" "Racket clone detection: same code modulo local renaming")
-   (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE.rkt...]" "public API lock for Racket modules: exports, arity, contracts; diff classifies breaks")
+   (cmd "syntax" cmd-syntax "steer syntax FILE... [--fix]" "structural check: reader/parser error plus a verified repair; --fix applies it" syntax-language-details)
+   (cmd "dup" cmd-dup "steer dup [PATH...] [--min-size N] [--loose]" "Racket-only clone detection: same code modulo local renaming")
+   (cmd "api" cmd-api "steer api snapshot|diff|show [MODULE.rkt...]" "Racket-only public API lock: exports, arity, contracts; diff classifies breaks")
    (cmd "doc" cmd-doc "steer doc exists|sig ID [MODULE] | search WORD... | exports MODULE"
         "Racket documentation lookup: does this name exist, its documented signature, what a module provides")
    (cmd "spec" cmd-spec "steer spec check|render FILE|-  [--lax]"

@@ -2,7 +2,7 @@
 ;; Task-tracker commands (catalog F1/F2): the CLI surface over store.rkt, tasks.rkt, anchors.rkt.
 ;; Every mutation happens under the store lock and appends an event; output is budgeted.
 (require racket/list racket/string racket/port
-         "common.rkt" "store.rkt" "tasks.rkt" "anchors.rkt" "checks.rkt" "plan.rkt" "skills.rkt")
+         "common.rkt" "store.rkt" "tasks.rkt" "anchors.rkt" "checks.rkt" "testparse.rkt" "plan.rkt" "skills.rkt")
 (provide cmd-init cmd-add cmd-import cmd-list cmd-show cmd-ready cmd-next cmd-claim cmd-release
          cmd-note cmd-checkpoint cmd-done cmd-verify cmd-drop cmd-reopen cmd-edit
          cmd-resume cmd-since cmd-graph cmd-stale cmd-refresh
@@ -162,6 +162,7 @@
       (define after (remove-duplicates (for/list ([d (opt-ids o 'after)]) (task-ref (get-task by-id d) 'id))))
       (define refs (map (λ (r) (normalize-anchor-ref root r)) (opt-list o 'anchor)))
       (define anchors (map (λ (r) (baseline-anchor root r)) refs))
+      (define anchor-findings-for (anchor-not-found-findings root refs))
       (define id (next-id tasks))
       (define t (hasheq 'id id 'title title 'status 'open 'priority (or (parse-priority (opt-ref o 'priority)) 2)
                         'goal (opt-ref o 'goal) 'after after 'checks (opt-list o 'check)
@@ -178,9 +179,21 @@
                                   (list (finding 'warning 'no-check "no --check: `done` will require --unverified REASON" #:task id
                                                  #:fix (format "steer edit ~a --add-check \"CMD\"" id)))
                                   '())
-                              (for/list ([a anchors] #:unless (hash-ref a 'hash))
-                                (finding 'info 'anchor-pending (format "anchor ~a does not exist yet (fine if this task creates it)" (hash-ref a 'ref)) #:task id)))
+                              (anchor-findings-for id))
                   #:next (list (format "steer show ~a" id))))))
+
+;; T51: an anchor whose baseline hash is #f is either "this file doesn't exist yet, the task will
+;; create it" (info) or "this file exists but never defined that name" (warning, with a did-you-mean
+;; suggestion) — a typo or a wrong qualification should not read the same as a not-yet-written file.
+(define (anchor-not-found-findings root refs)
+  (λ (id)
+    (for*/list ([r refs] [d (in-value (resolve-anchor root r))] #:unless (hash-ref d 'found? #f))
+      (if (hash-ref d 'file-exists? #f)
+          (finding 'warning 'anchor-unresolved (format "anchor ~a: ~a" r (hash-ref d 'problem))
+                   #:task id #:fix (let ([s (hash-ref d 'suggestions '())])
+                                     (if (pair? s) (format "did you mean ~a? (or fix the name if the task itself will add it)" (car s))
+                                         "check the name and its qualification (Class.member for Python/C#)")))
+          (finding 'info 'anchor-pending (format "anchor ~a does not exist yet (fine if this task creates it)" r) #:task id)))))
 
 (define (cmd-import argv)
   (define-values (pos o) (parse-args "import" argv '(("--dry-run" bool)) #:min 1 #:max 1
@@ -206,12 +219,14 @@
            [(or (pair? perrs) (pair? rerrs))
             (import-failed (sort (append perrs rerrs) < #:key (λ (f) (hash-ref f 'line 0))))]
            [else
+            (define refs-by-task (make-hash))
             (define made
               (for/list ([n new])
                 (define refs (map (λ (r) (normalize-anchor-ref root r)) (hash-ref n 'anchor-refs)))
                 (define t (hash-set* (hash-remove n 'anchor-refs)
                                      'anchors (map (λ (r) (baseline-anchor root r)) refs)
                                      'claimed-by #f 'created (now-iso) 'log '()))
+                (hash-set! refs-by-task (task-ref t 'id) refs)
                 t))
             (define by-id* (for/fold ([m by-id]) ([t made]) (hash-set m (task-ref t 'id) t)))
             (unless (opt-ref o 'dry-run)
@@ -228,8 +243,11 @@
                                  (string-append (task-line t by-id*) (if lab (format "  (#:id ~a)" lab) ""))))
                          "\n")
                         (hasheq 'created (map (λ (t) (task-ref t 'id)) made) 'labels labels 'dry_run (and (opt-ref o 'dry-run) #t))
-                        #:findings (for/list ([t made] #:when (null? (task-ref t 'checks)))
-                                     (finding 'warning 'no-check (format "~a has no #:check; `done` will need --unverified" (task-ref t 'id)) #:task (task-ref t 'id)))
+                        #:findings (append
+                                    (for/list ([t made] #:when (null? (task-ref t 'checks)))
+                                      (finding 'warning 'no-check (format "~a has no #:check; `done` will need --unverified" (task-ref t 'id)) #:task (task-ref t 'id)))
+                                    (append* (for/list ([t made])
+                                               ((anchor-not-found-findings root (hash-ref refs-by-task (task-ref t 'id))) (task-ref t 'id)))))
                         #:next (list "steer graph" "steer next --claim"))])))]))
 
 (define (import-failed errs)
@@ -513,13 +531,42 @@
   (define timeout (config-ref root 'check-timeout 600))
   (for/list ([c (task-ref t 'checks '())]) (run-check c root timeout)))
 
+;; The command's own failure, plus up to 3 findings from the tests it ran (test id, file:line, first message
+;; line), if the output is recognisable (pytest, dotnet test, raco test); otherwise the raw tail as detail.
+;; The full parse is behind --full or --json; note 12 found dotnet test's first failures lost in a tail alone.
 (define (check-findings id results)
-  (for/list ([r results] #:unless (hash-ref r 'ok))
-    (finding 'error 'check-failed
-             (format "`~a` ~a after ~as" (hash-ref r 'cmd)
-                     (if (eq? (hash-ref r 'exit) 'timeout) "timed out" (format "exited ~a" (hash-ref r 'exit)))
-                     (hash-ref r 'secs))
-             #:task id #:detail (let ([tl (hash-ref r 'tail)]) (and (not (string=? tl "")) tl)))))
+  (append*
+   (for/list ([r results] #:unless (hash-ref r 'ok))
+     (define p (parse-test-output (hash-ref r 'cmd) (hash-ref r 'output "")))
+     (define fails (hash-ref p 'failures '()))
+     ;; nothing recognisable as a test result: the check may never have reached its tests (a build or
+     ;; import error). Only tried when parse-test-output found nothing, so it never shadows a real result.
+     (define diag (if (null? fails) (parse-diagnostics (hash-ref r 'output "")) (hasheq 'failures '() 'summary #f)))
+     (define diag-fails (hash-ref diag 'failures '()))
+     (define kind (if (pair? diag-fails) 'diag-failed 'test-failed))
+     (define more-kind (if (pair? diag-fails) 'diag-failed-more 'test-failed-more))
+     (define all-fails (if (pair? fails) fails diag-fails))
+     (define summary (or (hash-ref p 'summary #f) (hash-ref diag 'summary #f)))
+     (define cap (or (current-limit) (if (current-full?) +inf.0 3)))
+     (define shown (if (> (length all-fails) cap) (take all-fails (inexact->exact cap)) all-fails))
+     (define head (finding 'error 'check-failed
+                           (format "`~a` ~a after ~as~a" (hash-ref r 'cmd)
+                                   (if (eq? (hash-ref r 'exit) 'timeout) "timed out" (format "exited ~a" (hash-ref r 'exit)))
+                                   (hash-ref r 'secs)
+                                   (cond [summary (format ": ~a" summary)]
+                                         [(> (length all-fails) 0) (format ": ~a failing test~a" (length all-fails) (plural (length all-fails)))]
+                                         [else ""]))
+                           #:task id
+                           #:detail (and (null? all-fails) (let ([tl (hash-ref r 'tail)]) (and (not (string=? tl "")) tl)))))
+     (cons head
+           (append (for/list ([f shown])
+                     (finding 'error kind (format "~a: ~a" (hash-ref f 'id) (hash-ref f 'message))
+                              #:task id #:file (hash-ref f 'file #f) #:line (hash-ref f 'line #f)))
+                   (if (> (length all-fails) (length shown))
+                       (list (finding 'info more-kind (format "(+~a more~a; add --full or --limit N)" (- (length all-fails) (length shown))
+                                                              (if (eq? kind 'diag-failed) " diagnostics" " failing tests"))
+                                     #:task id))
+                       '()))))))
 
 (define (cmd-done argv)
   (define-values (pos o) (parse-args "done" argv '(("--unverified" one) ("--force" bool)) #:min 1 #:max 1
@@ -624,6 +671,7 @@
         (filter (λ (y) (not (member y xs))) lst))
       (define add-after (for/list ([d (opt-ids o 'add-after)]) (task-ref (get-task by-id d) 'id)))
       (define rm-after (map normalize-id (opt-ids o 'rm-after)))
+      (define new-anchor-refs (map (λ (r) (normalize-anchor-ref root r)) (opt-list o 'add-anchor)))
       ;; --rm-check accepts the exact command or its 1-based position
       (define checks (task-ref t 'checks '()))
       (define rm-checks (for/list ([c (opt-list o 'rm-check)])
@@ -640,7 +688,7 @@
                                      (define refs (map (λ (a) (hash-ref a 'ref)) (task-ref t 'anchors '())))
                                      (rm-from refs rm "anchor")
                                      (filter (λ (a) (not (member (hash-ref a 'ref) rm))) (task-ref t 'anchors '())))
-                                   (map (λ (r) (baseline-anchor root (normalize-anchor-ref root r))) (opt-list o 'add-anchor)))
+                                   (map (λ (r) (baseline-anchor root r)) new-anchor-refs))
                   'touches (append (rm-from (task-ref t 'touches '()) (opt-list o 'rm-touch) "touch") (opt-list o 'add-touch))
                   'tags (append (rm-from (map (λ (x) (format "~a" x)) (task-ref t 'tags '())) (opt-list o 'rm-tag) "tag") (opt-list o 'add-tag))))
       (when (member id (task-ref t* 'after)) (fail! 'self-dependency (format "~a cannot depend on itself" id)))
@@ -649,7 +697,8 @@
       (save-task! root t*)
       (append-event! root 'edit id (string-join (map (λ (k) (format "--~a" k)) (sort (hash-keys o) symbol<?)) " "))
       (define-values (text data) (packet root t* (hash-set by-id id t*)))
-      (make-reply "edit" (string-append "edited " text) data))))
+      (make-reply "edit" (string-append "edited " text) data
+                  #:findings ((anchor-not-found-findings root new-anchor-refs) id)))))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Anchors: stale / refresh (plan drift)

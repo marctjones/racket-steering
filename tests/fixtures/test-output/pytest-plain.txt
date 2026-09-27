@@ -1,0 +1,67 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.5, pytest-9.1.1, pluggy-1.6.0
+rootdir: /work
+collected 8 items
+
+test_demo.py .F.FF.FF                                                    [100%]
+
+=================================== FAILURES ===================================
+_______________________________ test_wrong_value _______________________________
+
+    def test_wrong_value():
+>       assert parse_line_col("3:4") == (3, 5)
+E       assert (3, 4) == (3, 5)
+E         
+E         At index 1 diff: 4 != 5
+E         Use -v to get more diff
+
+test_demo.py:14: AssertionError
+_________________________________ test_message _________________________________
+
+    def test_message():
+>       assert "abc" == "abd", "strings differ"
+E       AssertionError: strings differ
+E       assert 'abc' == 'abd'
+E         
+E         - abd
+E         + abc
+
+test_demo.py:23: AssertionError
+___________________________ TestGroup.test_in_class ____________________________
+
+self = <test_demo.TestGroup object at 0x107424690>
+
+    def test_in_class(self):
+>       assert [1, 2, 3] == [1, 2, 4]
+E       assert [1, 2, 3] == [1, 2, 4]
+E         
+E         At index 2 diff: 3 != 4
+E         Use -v to get more diff
+
+test_demo.py:28: AssertionError
+__________________________ TestGroup.test_param[2-3] ___________________________
+
+self = <test_demo.TestGroup object at 0x1073c4770>, a = 2, b = 3
+
+    @pytest.mark.parametrize("a,b", [(1, 1), (2, 3)])
+    def test_param(self, a, b):
+>       assert a == b
+E       assert 2 == 3
+
+test_demo.py:32: AssertionError
+_____________________________ test_error_in_setup ______________________________
+
+tmp_path = PosixPath('/tmp/pytest-of-user/pytest-52/test_error_in_setup0')
+
+    def test_error_in_setup(tmp_path):
+>       raise RuntimeError("boom")
+E       RuntimeError: boom
+
+test_demo.py:36: RuntimeError
+=========================== short test summary info ============================
+FAILED test_demo.py::test_wrong_value - assert (3, 4) == (3, 5)
+FAILED test_demo.py::test_message - AssertionError: strings differ
+FAILED test_demo.py::TestGroup::test_in_class - assert [1, 2, 3] == [1, 2, 4]
+FAILED test_demo.py::TestGroup::test_param[2-3] - assert 2 == 3
+FAILED test_demo.py::test_error_in_setup - RuntimeError: boom
+========================= 5 failed, 3 passed in 0.11s ==========================

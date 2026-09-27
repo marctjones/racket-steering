@@ -28,8 +28,8 @@ One executable, short text output (or `--json` in the note-03 protocol), stable 
 | measurement | `failures [--by class\|kind\|tool\|agent]`: every command logs its error/warning findings (locally, gitignored, clipped); the largest class says what to build next | E1 |
 | store health | `doctor [--against REF] [--fix]`: corrupt/conflicted files, dangling deps, stale claims, ids another branch uses for a different task (renumbers ours), duplicate event numbers after merges | F1 |
 | continuity | `resume` (budgeted packet) · `since N` (event cursor) · `graph` (cycles, layers, critical path) | F1 |
-| plan drift | `stale` / `refresh`: symbol anchors (`file#name`) hashed over the datum, so reformatting is not drift | F2 |
-| Racket code | `syntax [--fix]` (reader error + a verified, indentation-guided repair) · `dup` (clones modulo renaming) · `api snapshot/diff/show` | A1 F5 F3 |
+| plan drift | `stale` / `refresh`: symbol anchors (`file#name`) hashed over the datum, so reformatting is not drift; exact for Racket/Python/C#, heuristic elsewhere | F2 |
+| code checks | `syntax [--fix]`: a reader/parser error + a verified repair — Racket, Python, C#; anything else is `skipped` · `dup`/`api` are Racket-only | A1 F5 F3 |
 | criteria | `spec check\|render FILE\|-`: acceptance criteria in a controlled (EARS) form; refuses vague ones (weak modals, "etc.", "fast", hedges, hidden conditions) with a located fix | G2 |
 | architecture | `rules check\|facts\|init`: layering rules as Datalog over the require graph; each violation shows the require path (this repo checks itself: `.steer/rules.dl`) | F4 |
 | Racket docs | `doc exists\|sig\|search\|exports`: is this name real, its documented signature and `(require ...)`, nearest racket names for a wrong one | B1 |
@@ -108,9 +108,15 @@ Plan format (`steer help import`):
 | `scripts/` | sample-data fetch/build, corpus gate, accuracy measurements |
 | `.steer/` | this repo's own task store (backlog), committed |
 
-## Known limits of the first slice
+## Known limits
 
+- **Language coverage** (`steer help syntax`/`stale`/`done` print the same table): `syntax`, anchors
+  (`file#Name`) and `done`'s test-failure detail are exact for Racket, Python (needs `python3`, no
+  import) and C# (no `dotnet` needed for syntax/anchors). Any other file type is `skipped` by
+  `syntax`, resolved by a keyword/indentation heuristic (labelled `~heuristic`) for anchors, and shown
+  only as the check's raw output tail by `done`.
+- `dup` and `api` are Racket-only; there is no Python or C# equivalent yet (F5b, F3/XL2).
 - `steer api` instantiates modules (their top-level code runs) in a plain subprocess; sandboxing is task T20.
-- Clone detection works on surface syntax (not expanded code) and Racket only; non-Racket and near-miss clones are T18.
-- Anchors in non-Racket files use a keyword/indentation heuristic and are labelled `~heuristic`.
-- Task ids are sequential per store; two branches can both create `T7` (T21).
+- `done`'s structured test-failure detail understands pytest, `dotnet test` and `raco test`; an
+  unrecognised runner falls back to the raw tail.
+- Task ids are sequential per store; two branches can both create `T7` — `steer doctor --against REF --fix` resolves it.

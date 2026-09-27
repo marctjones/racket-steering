@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Code-facing commands: `syntax` (A1), `dup` (F5), `api` (F3), and the post-edit hook check.
 (require racket/list racket/string racket/file
-         "common.rkt" "store.rkt" "failures.rkt" "srcread.rkt" "syntax-check.rkt" "dup.rkt" "api.rkt")
+         "common.rkt" "store.rkt" "failures.rkt" "srcread.rkt" "syntax-check.rkt" "lang.rkt" "dup.rkt" "api.rkt")
 (provide cmd-syntax cmd-dup cmd-api post-edit-problems)
 
 (define (project-root) (or (find-root #:required? #f) (simplify-path (current-directory))))
@@ -22,8 +22,8 @@
       (cond
         [(not (file-exists? f)) (list f #f (list (finding 'error 'no-file (format "no such file ~a" f) #:file f)))]
         [else
-         (define-values (fs n lang) (check-source (file->text f) (display-path root f)))
-         (list f n fs)])))
+         (define-values (fs n lang unit) (lang-check f (file->text f) (display-path root f)))
+         (list f n fs unit)])))
   (define all (append-map caddr results))
   (define errors (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) all))
   (make-reply "syntax"
@@ -31,16 +31,19 @@
                             (for*/list ([fx fixes] [e (cdr fx)])
                               (format "fixed ~a: ~a (structure may still differ from what you meant: rerun the tests)" (car fx) (edit-summary e)))
                             (for/list ([r results] #:when (null? (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) (caddr r))))
-                              (format "ok ~a (~a form~a)" (car r) (cadr r) (plural (or (cadr r) 0)))))
+                              (if (cadr r)
+                                  (format "ok ~a (~a ~a~a)" (car r) (cadr r) (cadddr r) (plural (cadr r)))
+                                  (format "skipped ~a (no structural gate for this file type)" (car r)))))
                            "\n")
-              (hasheq 'files (for/list ([r results]) (hasheq 'file (car r) 'forms (cadr r) 'ok (null? (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) (caddr r))))))
+              (hasheq 'files (for/list ([r results]) (hasheq 'file (car r) 'forms (cadr r) 'skipped (not (cadr r))
+                                                             'ok (null? (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) (caddr r))))))
               #:ok? (null? errors) #:findings all))
 
 ;; --fix: apply verified edits only (the file must read afterwards), at most 3 rounds. → edits applied
 (define (fix-file! path shown)
   (let loop ([round 0] [applied '()])
     (define text (file->text path))
-    (define-values (fs _n _l) (check-source text shown))
+    (define-values (fs _n _l _u) (lang-check path text shown))
     (define e (for/first ([f fs] #:when (let ([e (hash-ref f 'edit #f)]) (and e (hash-ref e 'verified #f)))) (hash-ref f 'edit)))
     (cond
       [(or (not e) (>= round 3)) (reverse applied)]
@@ -54,10 +57,11 @@
     [(delete) (format "deleted `~a` at line ~a col ~a" (hash-ref e 'text) (hash-ref e 'line) (hash-ref e 'col))]
     [(replace) (format "replaced the closer at line ~a col ~a with `~a`" (hash-ref e 'line) (hash-ref e 'col) (hash-ref e 'text))]))
 
-;; For `steer hook post-edit`: #f when fine or not a Racket file, else text for the model.
+;; For `steer hook post-edit`: #f when fine or when the file type has no gate (the hook stays silent on
+;; files it cannot judge: a note in every .md edit would train the agent to ignore it), else text for the model.
 (define (post-edit-problems file)
-  (and (racket-file? file) (file-exists? file)
-       (let-values ([(fs n lang) (check-source (file->text file) file)])
+  (and (gate-for-path file) (file-exists? file)
+       (let-values ([(fs n lang unit) (lang-check file (file->text file) file)])
          (define errors (filter (λ (x) (eq? (hash-ref x 'severity) 'error)) fs))
          (for ([e errors]) (record-finding! 'hook-post-edit e))
          (and (pair? errors)
