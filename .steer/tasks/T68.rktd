@@ -1,6 +1,6 @@
 ((id "T68")
  (title "Measure the graph on note 12's real projects and record the numbers")
- (status active)
+ (status done)
  (priority 2)
  (goal
   "On rebellion (samples/corpus), tomli, aiofiles and GuardClauses at note 12's pinned commits: refs by confidence and unresolved per language, entries per heuristic, dead-symbol count, and a hand-checked sample of 20 dead findings per language classified true/false; written to notes/16-code-graph.md with [tested] tags; the test asserts rebellion's resolution ratio does not fall below the recorded floor. No language gets its own measurement methodology - one script, run per language.")
@@ -11,5 +11,17 @@
  (tags ("graph"))
  (claimed-by "xl3")
  (created "2026-09-27T08:50:21Z")
- (updated "2026-09-27T11:18:54Z")
- (log ()))
+ (updated "2026-09-27T15:14:25Z")
+ (log
+  (((agent "xl3")
+    (kind note)
+    (seq 303)
+    (text
+     "Real measurement on note 12's four fixtures found and fixed 3 real bugs (all detailed in notes/16): (1) rkt-resolve-import never tried a Racket collection-style require (only relative paths), which turned out to be rebellion's dominant intra-package style - resolution ratio 29.7% -> 51.2%. (2) exported? was hardcoded #t in BOTH cs-extract and rkt-extract (never checking real public/private visibility or provide), which made the new public_api entry rule vacuous or wrong - GuardClauses went from 838/841 (99.6%) symbols 'dead' to a real 212/841 (25.2%) once C# visibility was tracked for real; rebellion went from 1017/1881 to 900/1881 once Racket's provide-scanner replaced the hardcoded #t. (3) Python's implicit-names table only covered the sync context-manager protocol, missing async (__aenter__ etc) and general object-protocol dunders (__repr__, __iter__, __eq__, ...) - aiofiles' dead count dropped from 44 to 31 once expanded. A stale .steer/cache/ left inside tests/fixtures/{rkt,pyproj,csproj} by earlier ad-hoc runs caused a real test failure (masked an extractor fix behind old cached data) - cleaned up and tests/fixtures/**/.steer/ added to .gitignore as a guard. Hand-inspecting 20 dead findings per language (or all, where fewer exist) found near-zero true positives across all three languages, ALL attributable to one well-understood root cause: this graph only emits refs for syntactic calls, never for a plain value/attribute reference, so anything reached only via a dispatch table, a returned closure, a decorator/attribute class (C# only - Python already tracks decorates refs), or a property/field read by bare name looks dead when it is not. Recorded plainly in notes/16, not rounded away.")
+    (ts "2026-09-27T15:14:22Z"))
+   ((agent "xl3")
+    (checks (((cmd "raco test tests/graph-measure-test.rkt") (secs 3.3))))
+    (kind done)
+    (seq 304)
+    (ts "2026-09-27T15:14:25Z")
+    (verified #t)))))

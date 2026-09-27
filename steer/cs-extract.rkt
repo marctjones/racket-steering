@@ -163,6 +163,28 @@
      (define (enclosing-type-of qualname)
        (define segs (string-split qualname "."))
        (and (> (length segs) 1) (string-join (drop-right segs 1) ".")))
+     (define (type-named qn) (findf (λ (t) (equal? (cs-type-qualname t) qn)) types))
+     ;; T68 (measured on a real library, GuardClauses): exported? was hardcoded #t for every def,
+     ;; so the entry engine's public_api rule could never tell a private helper from a public one -
+     ;; here it actually reads the modifier keyword immediately before the def (bounded backward scan,
+     ;; stopping at a `{`/`}`/`;` boundary so it never wanders into an unrelated earlier member), with
+     ;; C#'s own real defaults when none is written: an interface member is public with no keyword; a
+     ;; type member is private; a top-level type is internal; a nested type is private.
+     (define (visibility-before to)
+       (let loop ([i (sub1 to)] [steps 0])
+         (cond [(or (< i 0) (> steps 60)) #f]
+               [(member (tx tv i) '("{" "}" ";")) #f]
+               [(member (tx tv i) '("public" "private" "protected" "internal")) (tx tv i)]
+               [else (loop (sub1 i) (add1 steps))])))
+     (define (exported-type? ty)
+       (case (visibility-before (cs-type-start ty))
+         [("public") #t] [("private" "protected" "internal") #f]
+         [else (not (enclosing-type-of (cs-type-qualname ty)))]))       ; default: top-level internal-ish (visible in-project), nested private
+     (define (exported-member? m scope)
+       (define enclosing (and scope (type-named scope)))
+       (case (visibility-before (cs-member-start m))
+         [("public") #t] [("private" "protected" "internal") #f]
+         [else (and enclosing (equal? (cs-type-kind enclosing) "interface"))]))  ; default: private, except interface members (always public)
      (define type-defs
        (for/list ([ty types])
          (define scope (enclosing-type-of (cs-type-qualname ty)))
@@ -170,7 +192,7 @@
          (define endl (ctok-eline (vector-ref tv (cs-type-end ty))))
          (def (type-kind->def-kind (cs-type-kind ty)) (last (string-split (cs-type-qualname ty) ".")) (cs-type-qualname ty)
               scope line endl (format "~a ~a" (cs-type-kind ty) (cs-type-qualname ty)) (tokens-hash tv (cs-type-start ty) (cs-type-end ty))
-              (cs-type-bases ty) (cs-type-attrs ty) (entry-here? line) #t)))
+              (cs-type-bases ty) (cs-type-attrs ty) (entry-here? line) (exported-type? ty))))
      (define member-defs
        (for/list ([m members])
          (define scope (enclosing-type-of (cs-member-qualname m)))
@@ -188,7 +210,7 @@
                (format "~a" bare-name)))
          (def (member-kind->def-kind m enclosing-name) bare-name (cs-member-qualname m)
               scope line endl shape (tokens-hash tv (cs-member-start m) (cs-member-end m))
-              '() '() (entry-here? line) #t)))
+              '() '() (entry-here? line) (exported-member? m scope))))
      (define member-refs
        (append*
         (for/list ([m members])

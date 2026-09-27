@@ -128,8 +128,17 @@
   (define mods (filter (λ (n) (eq? (gnode-kind n) 'module)) (graph-nodes g)))
   (define has-stmt-paths (for/list ([f fs-list] #:when (file-facts-has-statements? f)) (file-facts-path f)))
   (define imported-paths (remove-duplicates (for/list ([e (graph-edges g)] #:when (eq? (gedge-kind e) 'imports)) (gedge-to e))))
+  ;; a top-level exported symbol, OR an exported member of an exported class - C# has no "top-level"
+  ;; functions at all (every def nests inside a class), so requiring "no dot in qualname" alone (true
+  ;; for Python/Racket) would mean public_api NEVER matches a single C# symbol. Found measuring T68
+  ;; on a real C# library (GuardClauses, whose whole purpose IS its public static API): 838 of 841
+  ;; symbols showed up "dead" before this fix, because nothing ever admitted them as entries at all.
+  (define (id->node id) (findf (λ (n) (equal? (gnode-id n) id)) syms))
   (define public-syms
-    (for/list ([s syms] #:when (and (gnode-exported? s) (not (regexp-match? #rx"[.]" (gnode-qualname s))))) s))
+    (for/list ([s syms]
+               #:when (and (gnode-exported? s)
+                           (let ([enc (enclosing-id s)]) (or (not enc) (let ([c (id->node enc)]) (and c (gnode-exported? c)))))))
+      s))
   (define api-mod-paths (remove-duplicates (map gnode-path public-syms)))
   (define controller-classes
     (for/list ([s syms] #:when (and (memq (gnode-kind s) '(class struct))

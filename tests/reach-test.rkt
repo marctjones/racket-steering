@@ -24,13 +24,30 @@
   (check-false (and (member "shapes.py#compute_area" dead) #t))
   (check-false (and (member "helper.py#double" dead) #t)))
 
+;; every type/member in this fixture is `public`, so C#'s own public_api entry rule (added mid-T68,
+;; measuring a real C# library where its absence made 838 of 841 real symbols look dead) now admits
+;; all of them as entries too - the same way Python's already did for an exported top-level symbol in
+;; a root module. Nothing here is a genuinely dead-code case any more; that is checked separately
+;; below, with `private` members, which the public_api rule (correctly) never touches.
 (let-values ([(g parent ids by) (project-reachability cs-dir)])
   (define dead (map gnode-id (dead-nodes g parent)))
-  (check-true (and (member "Shapes.cs#Program.UnusedHelper" dead) #t))
-  (check-true (and (member "Helper.cs#Helper.Triple" dead) #t))
-  (check-true (and (member "Shapes.cs#LoudDog" dead) #t) "LoudDog is never instantiated")
-  (check-false (and (member "Shapes.cs#Dog" dead) #t) "instantiated via `new Dog()`")
+  (check-false (and (member "Shapes.cs#Program.UnusedHelper" dead) #t) "public, in a root module: admitted via public_api now")
+  (check-false (and (member "Helper.cs#Helper.Triple" dead) #t))
+  (check-false (and (member "Shapes.cs#LoudDog" dead) #t))
+  (check-false (and (member "Shapes.cs#Dog" dead) #t) "instantiated via `new Dog()` (and also public_api now)")
   (check-false (and (member "Helper.cs#Helper.Double" dead) #t)))
+
+;; a genuinely dead C# case: `private` members are never touched by public_api, so ordinary call-based
+;; reachability is still the only thing that can save them.
+(let ()
+  (define d (make-temporary-directory "steer-reach-cs~a"))
+  (call-with-output-file (build-path d "P.cs") #:exists 'truncate
+    (λ (o) (void (write-string "namespace N {\n  public class Program {\n    // steer: entry\n    public static void Run() { Helper(); }\n    private static void Helper() { }\n    private static void NeverCalled() { }\n  }\n}\n" o))))
+  (define-values (g parent ids by) (project-reachability d))
+  (define dead (map gnode-id (dead-nodes g parent)))
+  (check-false (and (member "P.cs#Program.Helper" dead) #t) "private, but called from Run")
+  (check-true (and (member "P.cs#Program.NeverCalled" dead) #t) "private and never called: still a real dead-code case")
+  (delete-directory/files d))
 
 (let-values ([(g parent ids by) (project-reachability rkt-dir)])
   (define dead (map gnode-id (dead-nodes g parent)))
@@ -77,7 +94,8 @@
   (make-directory* (let-values ([(d _n _x) (split-path p)]) d))
   (call-with-output-file p #:exists 'truncate (λ (o) (void (write-string text o)))))
 (write-file2! "m.py"
-  (string-append "class Base:\n    def speak(self):\n        return 1\n\n"
+  (string-append "__all__ = [\"run\"]\n\n"
+                  "class Base:\n    def speak(self):\n        return 1\n\n"
                   "class Sub(Base):\n    def speak(self):\n        return 2\n\n"
                   "# steer: entry\ndef run(x):\n    return x.speak()\n"))
 (let-values ([(g parent ids by) (project-reachability dir2)])
@@ -93,7 +111,8 @@
   (check-false (and (member "m.py#Base.speak" dead) #t)))
 ;; now the mutation: rename the call so NEITHER Base.speak nor Sub.speak is called at all
 (write-file2! "m.py"
-  (string-append "class Base:\n    def speak(self):\n        return 1\n\n"
+  (string-append "__all__ = [\"run\"]\n\n"
+                  "class Base:\n    def speak(self):\n        return 1\n\n"
                   "class Sub(Base):\n    def speak(self):\n        return 2\n\n"
                   "# steer: entry\ndef run(x):\n    return 1\n"))
 (let-values ([(g parent ids by) (project-reachability dir2)])
@@ -111,8 +130,10 @@
   (define p (build-path dir3 rel))
   (make-directory* (let-values ([(d _n _x) (split-path p)]) d))
   (call-with-output-file p #:exists 'truncate (λ (o) (void (write-string text o)))))
+;; `NeverCalled` is `private`, so C#'s public_api entry rule (added mid-T68) never touches it -
+;; isolating this regression check to the `defines`-edge mechanics it is actually about.
 (write-file3! "P.cs"
-  "namespace N {\n  public class Widget {\n    // steer: entry\n    public static void Run() { var w = new Widget(); }\n    public void NeverCalled() { }\n  }\n}\n")
+  "namespace N {\n  public class Widget {\n    // steer: entry\n    public static void Run() { var w = new Widget(); }\n    private void NeverCalled() { }\n  }\n}\n")
 (let-values ([(g parent ids by) (project-reachability dir3)])
   (define dead (map gnode-id (dead-nodes g parent)))
   (check-true (and (member "P.cs#Widget.NeverCalled" dead) #t)

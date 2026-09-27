@@ -48,10 +48,15 @@
 ;; would just as happily match another language's symbols (found running this for real on this
 ;; repo's own mixed Racket/Python/C# tree: Racket top-level defines were showing up "admitted by
 ;; python", since nothing separated the fact bases - recorded via `steer note T64`).
+;; public_api+root_module (measured on a real library, T68: rebellion, which genuinely `provide`s a
+;; curated public surface via `contract-out` and hides everything else - 1017 of 1881 symbols showed
+;; up "dead" before rkt-extract tracked real provide-visibility and this rule existed, exactly the
+;; same gap Python's own version of this rule already closed).
 (define racket-entry-prelude #<<DL
 entry(S) :- test_name(S), in_module(S, M), test_module(M), lang(M, "racket").
 entry(S) :- console_script(S), lang(S, "racket").
 entry(M) :- root_module(M), has_statements(M), lang(M, "racket").
+entry(S) :- public_api(S), in_module(S, M), root_module(M), lang(M, "racket").
 DL
   )
 (define racket-implicit-names '("main"))
@@ -63,14 +68,29 @@ entry(M) :- package_init(M), lang(M, "python").
 entry(S) :- public_api(S), in_module(S, M), root_module(M), lang(M, "python").
 DL
   )
-(define python-implicit-names '("__init__" "__new__" "__enter__" "__exit__" "__call__" "main"))
+;; T68 (measured on a real project, aiofiles): the original list only covered the sync context-
+;; manager protocol - the async protocol (`__aenter__`/`__aexit__`/`__aiter__`/`__anext__`/`__await__`)
+;; and the common object-protocol dunders (`__repr__`/`__str__`/`__eq__`/`__hash__`/`__len__`/
+;; `__iter__`/`__next__`/`__getitem__`/`__setitem__`/`__contains__`/`__del__`) are called by the
+;; Python runtime the exact same way - never a named call anywhere in source - and every one of
+;; them showed up as a false-positive "dead" finding before this list included them.
+(define python-implicit-names
+  '("__init__" "__new__" "__del__" "__call__" "__enter__" "__exit__" "__aenter__" "__aexit__"
+    "__aiter__" "__anext__" "__await__" "__iter__" "__next__" "__repr__" "__str__" "__format__"
+    "__eq__" "__ne__" "__lt__" "__le__" "__gt__" "__ge__" "__hash__" "__bool__" "__len__"
+    "__getitem__" "__setitem__" "__delitem__" "__contains__" "__getattr__" "__setattr__" "main"))
 
+;; a public member of a public class is C#'s closest equivalent to Python's "public_api of a root
+;; module": C# has no top-level functions at all - every def nests inside a class - so a library's
+;; entire purpose IS its public static API surface (found measuring T68 on a real one, GuardClauses:
+;; without this rule, 838 of 841 symbols showed up "dead" - nothing had ever admitted them as entries).
 (define csharp-entry-prelude #<<DL
 entry(S) :- test_name(S), decorated(S, "Fact"), lang(S, "csharp").
 entry(S) :- test_name(S), decorated(S, "Test"), lang(S, "csharp").
 entry(S) :- test_name(S), decorated(S, "TestMethod"), lang(S, "csharp").
 entry(S) :- console_script(S), lang(S, "csharp").
 entry(S) :- member_of(S, C), controller_base(C), lang(S, "csharp").
+entry(S) :- public_api(S), in_module(S, M), root_module(M), lang(M, "csharp").
 DL
   )
 (define csharp-implicit-names '("Main" "Dispose" "Equals" "GetHashCode" "ToString"))

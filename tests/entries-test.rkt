@@ -35,16 +35,16 @@
 
 (define dir2 (make-temporary-directory "steer-entries~a"))
 (call-with-output-file (build-path dir2 "m.py") #:exists 'truncate
-  (λ (o) (void (write-string "class A:\n    def __init__(self):\n        pass\n    def helper(self):\n        pass\n" o))))
+  (λ (o) (void (write-string "class _A:\n    def __init__(self):\n        pass\n    def helper(self):\n        pass\n" o))))
 (let-values ([(ids by) (entry-facts dir2)])
-  (check-true (and (member "m.py#A.__init__" ids) #t) "__init__ is an implicit entry for Python")
-  (check-not-false (member "implicit" (entry-admitted-by by "m.py#A.__init__")))
-  (check-false (and (member "m.py#A.helper" ids) #t) "an ordinary method is not"))
+  (check-true (and (member "m.py#_A.__init__" ids) #t) "__init__ is an implicit entry for Python")
+  (check-not-false (member "implicit" (entry-admitted-by by "m.py#_A.__init__")))
+  (check-false (and (member "m.py#_A.helper" ids) #t) "an ordinary method is not"))
 (delete-directory/files dir2)
 
 (define dir3 (make-temporary-directory "steer-entries~a"))
 (call-with-output-file (build-path dir3 "P.cs") #:exists 'truncate
-  (λ (o) (void (write-string "namespace N { public class Program { public static void Main() { } public static void Helper() { } } }\n" o))))
+  (λ (o) (void (write-string "namespace N { public class Program { public static void Main() { } private static void Helper() { } } }\n" o))))
 (let-values ([(ids by) (entry-facts dir3)])
   (check-true (and (member "P.cs#Program.Main" ids) #t) "Main is an implicit entry for C#")
   (check-not-false (member "implicit" (entry-admitted-by by "P.cs#Program.Main")))

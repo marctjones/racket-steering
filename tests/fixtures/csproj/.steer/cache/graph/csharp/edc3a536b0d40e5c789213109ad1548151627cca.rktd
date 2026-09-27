@@ -1,1 +1,0 @@
-#s(file-facts "Helper.cs" csharp (#s(def class "Helper" "Helper" #f 6 17 "class Helper" "32ac8584d729" () () #f #t) #s(def method "Double" "Helper.Double" "Helper" 8 11 "method Helper.Double" "180702c11761" () () #f #t) #s(def method "Triple" "Helper.Triple" "Helper" 13 16 "method Helper.Triple" "ee305d584fa2" () () #f #t)) () () #f "c195e634b0e1")

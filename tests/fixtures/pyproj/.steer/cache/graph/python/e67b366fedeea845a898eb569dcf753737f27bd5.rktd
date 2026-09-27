@@ -1,1 +1,0 @@
-#s(file-facts "helper.py" python (#s(def function "double" "double" #f 5 6 "def double(x)" "94080179119e" () () #f #t) #s(def function "triple" "triple" #f 9 10 "def triple(x)" "d7132d28ef0a" () () #f #t)) () () #f "e67b366fedee")
